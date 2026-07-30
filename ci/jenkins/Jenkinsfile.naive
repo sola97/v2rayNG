@@ -71,12 +71,24 @@ pipeline {
                     set -euo pipefail
                     mkdir -p "$BUILD_ROOT" "$ARTIFACT_ROOT"
 
-                    mkdir -p "$WORKSPACE/.docker/cli-plugins"
-                    curl --fail --location --retry 4 \
-                      "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-amd64" \
-                      --output "$WORKSPACE/.docker/cli-plugins/docker-buildx"
-                    echo "${BUILDX_LINUX_AMD64_SHA256}  $WORKSPACE/.docker/cli-plugins/docker-buildx" | sha256sum --check --strict
-                    chmod 0755 "$WORKSPACE/.docker/cli-plugins/docker-buildx"
+                    buildx_cache_dir="$HOME/.cache/v2rayng-naive-ci"
+                    buildx_cache_file="$buildx_cache_dir/buildx-${BUILDX_VERSION}.linux-amd64"
+                    buildx_download_file="$buildx_cache_file.download-${BUILD_NUMBER}"
+                    mkdir -p "$buildx_cache_dir" "$WORKSPACE/.docker/cli-plugins"
+                    if ! echo "${BUILDX_LINUX_AMD64_SHA256}  $buildx_cache_file" | sha256sum --check --strict; then
+                      if ! curl --fail --location --retry 4 \
+                          "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-amd64" \
+                          --output "$buildx_download_file"; then
+                        rm -f "$buildx_download_file"
+                        exit 22
+                      fi
+                      if ! echo "${BUILDX_LINUX_AMD64_SHA256}  $buildx_download_file" | sha256sum --check --strict; then
+                        rm -f "$buildx_download_file"
+                        exit 23
+                      fi
+                      mv "$buildx_download_file" "$buildx_cache_file"
+                    fi
+                    install -m 0755 "$buildx_cache_file" "$WORKSPACE/.docker/cli-plugins/docker-buildx"
                     docker --config "$WORKSPACE/.docker" buildx version
 
                     git clone --filter=blob:none --no-checkout https://github.com/sola97/v2rayNG.git "$BUILD_ROOT/v2rayng"
