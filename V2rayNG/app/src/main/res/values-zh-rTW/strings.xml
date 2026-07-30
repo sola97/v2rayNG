@@ -39,6 +39,7 @@
     <string name="menu_item_import_config_manually_trojan">新增 [Trojan]</string>
     <string name="menu_item_import_config_manually_wireguard">新增 [Wireguard]</string>
     <string name="menu_item_import_config_manually_hysteria2">新增 [Hysteria2]</string>
+    <string name="menu_item_import_config_manually_naive">新增 [NaiveProxy]</string>
     <string name="del_config_comfirm">確定刪除？</string>
     <string name="del_invalid_config_comfirm">刪除前請先測試！確認刪除？</string>
     <string name="server_lab_remarks">備註</string>
@@ -123,6 +124,32 @@
     <string name="pinned_ca256_action_fetch">獲取並填充指紋證書</string>
     <string name="toast_fetch_cert_sha256_success">獲取指紋證書完成</string>
     <string name="toast_fetch_cert_sha256_failed">獲取證書指紋失敗</string>
+    <string name="server_naive_title">NaiveProxy</string>
+    <string name="server_naive_username">使用者名稱（可選）</string>
+    <string name="server_naive_password">密碼（可選）</string>
+    <string name="server_naive_transport">傳輸方式</string>
+    <string name="server_naive_transport_https">HTTPS（HTTP/2）</string>
+    <string name="server_naive_transport_quic">QUIC（HTTP/3）</string>
+    <string name="server_naive_insecure_concurrency">並行隧道數（僅 HTTPS）</string>
+    <string name="server_naive_quic_congestion_control">QUIC 壅塞控制</string>
+    <string name="server_naive_core_default">核心預設值</string>
+    <string name="server_naive_extra_headers">額外請求標頭</string>
+    <string name="server_naive_header_name">標頭名稱</string>
+    <string name="server_naive_header_value">標頭值</string>
+    <string name="server_naive_add_header">新增標頭</string>
+    <string name="server_naive_remove_header">刪除標頭</string>
+    <string name="server_naive_udp_over_tcp">透過 TCP 轉送 UDP</string>
+    <string name="server_naive_udp_over_tcp_summary">預設開啟，建議使用 v2</string>
+    <string name="server_naive_udp_over_tcp_version">UDP over TCP 版本</string>
+    <string name="server_naive_udp_disabled_warning">關閉 UDP over TCP 後，UDP 流量將無法轉送。</string>
+    <string name="server_naive_trusted_root_certificates">受信任的根 CA 憑證（PEM，可選）</string>
+    <string name="server_naive_ech_enabled">啟用 ECH</string>
+    <string name="server_naive_ech_summary">需要填入固定 ECH 設定或 DNS over HTTPS 位址</string>
+    <string name="server_naive_ech_config">ECH CONFIGS（PEM；填入 DoH 時可留空）</string>
+    <string name="server_naive_ech_query_server_name">ECH 查詢伺服器名稱（可選）</string>
+    <string name="server_naive_ech_dns_server">ECH DNS over HTTPS 位址</string>
+    <string name="server_naive_invalid_concurrency">並行隧道數必須是大於等於 1 的整數。</string>
+    <string name="server_naive_invalid_header_name">額外請求標頭名稱不能為空。</string>
 
     <!-- UserAssetActivity -->
     <string name="toast_asset_copy_failed">失敗，請使用檔案總管</string>

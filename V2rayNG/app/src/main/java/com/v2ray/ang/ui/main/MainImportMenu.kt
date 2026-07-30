@@ -66,6 +66,10 @@ fun ImportMenuContent(
         text = { Text(stringResource(R.string.menu_item_import_config_manually_hysteria2)) },
         onClick = { onAction(MainAction.ImportManually(EConfigType.HYSTERIA2.value)) }
     )
+    DropdownMenuItem(
+        text = { Text(stringResource(R.string.menu_item_import_config_manually_naive)) },
+        onClick = { onAction(MainAction.ImportManually(EConfigType.NAIVE.value)) }
+    )
 }
 
 @Composable

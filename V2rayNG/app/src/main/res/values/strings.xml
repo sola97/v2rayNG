@@ -40,6 +40,7 @@
     <string name="menu_item_import_config_manually_trojan">Add [Trojan]</string>
     <string name="menu_item_import_config_manually_wireguard">Add [Wireguard]</string>
     <string name="menu_item_import_config_manually_hysteria2">Add [Hysteria2]</string>
+    <string name="menu_item_import_config_manually_naive">Add [NaiveProxy]</string>
     <string name="del_config_comfirm">Confirm delete ?</string>
     <string name="del_invalid_config_comfirm">Please test before deleting! Confirm delete ?</string>
     <string name="server_lab_remarks">remarks</string>
@@ -126,6 +127,32 @@
     <string name="pinned_ca256_action_fetch">Fetch and fill certificate fingerprint</string>
     <string name="toast_fetch_cert_sha256_success">Certificate fingerprint fetched successfully</string>
     <string name="toast_fetch_cert_sha256_failed">Failed to fetch certificate fingerprint</string>
+    <string name="server_naive_title">NaiveProxy</string>
+    <string name="server_naive_username">Username (optional)</string>
+    <string name="server_naive_password">Password (optional)</string>
+    <string name="server_naive_transport">Transport</string>
+    <string name="server_naive_transport_https">HTTPS (HTTP/2)</string>
+    <string name="server_naive_transport_quic">QUIC (HTTP/3)</string>
+    <string name="server_naive_insecure_concurrency">Concurrent tunnels (HTTPS only)</string>
+    <string name="server_naive_quic_congestion_control">QUIC congestion control</string>
+    <string name="server_naive_core_default">Core default</string>
+    <string name="server_naive_extra_headers">Extra request headers</string>
+    <string name="server_naive_header_name">Header name</string>
+    <string name="server_naive_header_value">Header value</string>
+    <string name="server_naive_add_header">Add header</string>
+    <string name="server_naive_remove_header">Remove header</string>
+    <string name="server_naive_udp_over_tcp">UDP over TCP</string>
+    <string name="server_naive_udp_over_tcp_summary">Enabled by default; v2 is recommended</string>
+    <string name="server_naive_udp_over_tcp_version">UDP over TCP version</string>
+    <string name="server_naive_udp_disabled_warning">UDP forwarding is unavailable while UDP over TCP is disabled.</string>
+    <string name="server_naive_trusted_root_certificates">Trusted root CA certificates (PEM, optional)</string>
+    <string name="server_naive_ech_enabled">Enable ECH</string>
+    <string name="server_naive_ech_summary">Provide a fixed ECH config or a DNS over HTTPS server</string>
+    <string name="server_naive_ech_config">ECH CONFIGS (PEM, optional with DoH)</string>
+    <string name="server_naive_ech_query_server_name">ECH query server name (optional)</string>
+    <string name="server_naive_ech_dns_server">ECH DNS over HTTPS URL</string>
+    <string name="server_naive_invalid_concurrency">Concurrent tunnels must be an integer of at least 1.</string>
+    <string name="server_naive_invalid_header_name">Extra header names cannot be empty.</string>
 
     <!-- UserAssetActivity -->
     <string name="toast_asset_copy_failed">File copy failed, please use File Manager</string>

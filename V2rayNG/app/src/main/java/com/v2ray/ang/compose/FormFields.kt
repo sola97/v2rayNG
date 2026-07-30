@@ -26,6 +26,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -38,6 +40,7 @@ fun FormTextField(
     keyboardType: KeyboardType = KeyboardType.Text,
     placeholder: String? = null,
     maxLines: Int = 5,
+    isPassword: Boolean = false,
 ) {
     Box(
         modifier = modifier
@@ -49,10 +52,17 @@ fun FormTextField(
             onValueChange = onValueChange,
             label = { Text(label) },
             placeholder = placeholder?.let { { Text(it) } },
-            singleLine = false,
-            maxLines = maxLines,
+            singleLine = isPassword,
+            maxLines = if (isPassword) 1 else maxLines,
             enabled = enabled,
-            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = if (isPassword) KeyboardType.Password else keyboardType
+            ),
+            visualTransformation = if (isPassword) {
+                PasswordVisualTransformation()
+            } else {
+                VisualTransformation.None
+            },
             colors = OutlinedTextFieldDefaults.colors(
                 focusedContainerColor = Color.Transparent,
                 unfocusedContainerColor = Color.Transparent,

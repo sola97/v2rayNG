@@ -56,6 +56,17 @@ class ServerUiState(
     echConfigList: String = "",
     verifyPeerCertByName: String = "",
     pinnedCA256: String = "",
+    naiveTransport: String = "https",
+    naiveInsecureConcurrency: String = "1",
+    naiveExtraHeaders: Map<String, String> = emptyMap(),
+    naiveUdpOverTcp: Boolean = true,
+    naiveUdpOverTcpVersion: String = "2",
+    naiveQuicCongestionControl: String = "",
+    naiveTrustedRootCertificates: String = "",
+    naiveEchEnabled: Boolean = false,
+    naiveEchConfig: String = "",
+    naiveEchQueryServerName: String = "",
+    naiveEchDnsServer: String = "",
     isFetchingCert: Boolean = false
 ) {
     var configType by mutableStateOf(configType)
@@ -99,6 +110,17 @@ class ServerUiState(
     var echConfigList by mutableStateOf(echConfigList)
     var verifyPeerCertByName by mutableStateOf(verifyPeerCertByName)
     var pinnedCA256 by mutableStateOf(pinnedCA256)
+    var naiveTransport by mutableStateOf(naiveTransport)
+    var naiveInsecureConcurrency by mutableStateOf(naiveInsecureConcurrency)
+    var naiveExtraHeaders by mutableStateOf(naiveExtraHeaders)
+    var naiveUdpOverTcp by mutableStateOf(naiveUdpOverTcp)
+    var naiveUdpOverTcpVersion by mutableStateOf(naiveUdpOverTcpVersion)
+    var naiveQuicCongestionControl by mutableStateOf(naiveQuicCongestionControl)
+    var naiveTrustedRootCertificates by mutableStateOf(naiveTrustedRootCertificates)
+    var naiveEchEnabled by mutableStateOf(naiveEchEnabled)
+    var naiveEchConfig by mutableStateOf(naiveEchConfig)
+    var naiveEchQueryServerName by mutableStateOf(naiveEchQueryServerName)
+    var naiveEchDnsServer by mutableStateOf(naiveEchDnsServer)
     var isFetchingCert by mutableStateOf(isFetchingCert)
 
     fun toProfileItem(initialConfig: ProfileItem): ProfileItem {
@@ -108,6 +130,7 @@ class ServerUiState(
         val isSocksOrHttp = configType == EConfigType.SOCKS || configType == EConfigType.HTTP
         val isWireguard = configType == EConfigType.WIREGUARD
         val isHysteria2 = configType == EConfigType.HYSTERIA2
+        val isNaive = configType == EConfigType.NAIVE
 
         return initialConfig.copy(
             configType = configType,
@@ -121,7 +144,7 @@ class ServerUiState(
                 else -> null
             },
             flow = if (isVless) flow else null,
-            username = if (isSocksOrHttp) username else null,
+            username = if (isSocksOrHttp || isNaive) username else null,
             secretKey = if (isWireguard) secretKey else null,
             publicKey = when {
                 isWireguard -> publicKey
@@ -137,30 +160,41 @@ class ServerUiState(
             portHoppingInterval = if (isHysteria2) portHoppingInterval else null,
             bandwidthDown = if (isHysteria2) bandwidthDown else null,
             bandwidthUp = if (isHysteria2) bandwidthUp else null,
-            network = network,
-            headerType = headerType,
-            host = host,
-            path = path,
-            xhttpExtra = xhttpExtra.nullIfBlank(),
-            finalMask = finalMask.nullIfBlank(),
-            kcpMtu = kcpMtu.toIntOrNull(),
-            kcpTti = kcpTti.toIntOrNull(),
-            browserDialerMode = if (network in listOf(NetworkType.WS.type, NetworkType.XHTTP.type)) {
+            network = if (isNaive) null else network,
+            headerType = if (isNaive) null else headerType,
+            host = if (isNaive) null else host,
+            path = if (isNaive) null else path,
+            xhttpExtra = if (isNaive) null else xhttpExtra.nullIfBlank(),
+            finalMask = if (isNaive) null else finalMask.nullIfBlank(),
+            kcpMtu = if (isNaive) null else kcpMtu.toIntOrNull(),
+            kcpTti = if (isNaive) null else kcpTti.toIntOrNull(),
+            browserDialerMode = if (!isNaive && network in listOf(NetworkType.WS.type, NetworkType.XHTTP.type)) {
                 browserDialerMode.nullIfBlank()
             } else {
                 null
             },
-            security = streamSecurity,
+            security = if (isNaive) null else streamSecurity,
             sni = sni,
-            insecure = allowInsecure,
-            fingerPrint = fingerPrint,
-            alpn = alpn,
+            insecure = if (isNaive) null else allowInsecure,
+            fingerPrint = if (isNaive) null else fingerPrint,
+            alpn = if (isNaive) null else alpn,
             shortId = shortId,
             spiderX = spiderX,
             mldsa65Verify = mldsa65Verify,
             echConfigList = echConfigList,
             verifyPeerCertByName = verifyPeerCertByName,
-            pinnedCA256 = pinnedCA256
+            pinnedCA256 = if (isNaive) null else pinnedCA256,
+            naiveTransport = if (isNaive) naiveTransport else null,
+            naiveInsecureConcurrency = if (isNaive) naiveInsecureConcurrency.toIntOrNull() else null,
+            naiveExtraHeaders = if (isNaive) naiveExtraHeaders else null,
+            naiveUdpOverTcp = if (isNaive) naiveUdpOverTcp else null,
+            naiveUdpOverTcpVersion = if (isNaive) naiveUdpOverTcpVersion.toIntOrNull() else null,
+            naiveQuicCongestionControl = if (isNaive) naiveQuicCongestionControl.nullIfBlank() else null,
+            naiveTrustedRootCertificates = if (isNaive) naiveTrustedRootCertificates.nullIfBlank() else null,
+            naiveEchEnabled = if (isNaive) naiveEchEnabled else null,
+            naiveEchConfig = if (isNaive) naiveEchConfig.nullIfBlank() else null,
+            naiveEchQueryServerName = if (isNaive) naiveEchQueryServerName.nullIfBlank() else null,
+            naiveEchDnsServer = if (isNaive) naiveEchDnsServer.nullIfBlank() else null
         )
     }
 
@@ -209,7 +243,18 @@ class ServerUiState(
                 mldsa65Verify = initialConfig.mldsa65Verify ?: "",
                 echConfigList = initialConfig.echConfigList ?: "",
                 verifyPeerCertByName = initialConfig.verifyPeerCertByName ?: "",
-                pinnedCA256 = initialConfig.pinnedCA256 ?: ""
+                pinnedCA256 = initialConfig.pinnedCA256 ?: "",
+                naiveTransport = initialConfig.naiveTransport ?: "https",
+                naiveInsecureConcurrency = (initialConfig.naiveInsecureConcurrency ?: 1).toString(),
+                naiveExtraHeaders = initialConfig.naiveExtraHeaders ?: emptyMap(),
+                naiveUdpOverTcp = initialConfig.naiveUdpOverTcp != false,
+                naiveUdpOverTcpVersion = (initialConfig.naiveUdpOverTcpVersion ?: 2).toString(),
+                naiveQuicCongestionControl = initialConfig.naiveQuicCongestionControl ?: "",
+                naiveTrustedRootCertificates = initialConfig.naiveTrustedRootCertificates ?: "",
+                naiveEchEnabled = initialConfig.naiveEchEnabled == true,
+                naiveEchConfig = initialConfig.naiveEchConfig ?: "",
+                naiveEchQueryServerName = initialConfig.naiveEchQueryServerName ?: "",
+                naiveEchDnsServer = initialConfig.naiveEchDnsServer ?: ""
             )
 
         fun from(

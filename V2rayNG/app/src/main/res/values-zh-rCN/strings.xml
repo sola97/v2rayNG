@@ -39,6 +39,7 @@
     <string name="menu_item_import_config_manually_trojan">添加 [Trojan]</string>
     <string name="menu_item_import_config_manually_wireguard">添加 [Wireguard]</string>
     <string name="menu_item_import_config_manually_hysteria2">添加 [Hysteria2]</string>
+    <string name="menu_item_import_config_manually_naive">添加 [NaiveProxy]</string>
     <string name="del_config_comfirm">确认删除？</string>
     <string name="del_invalid_config_comfirm">删除前请先测试！确认删除？</string>
     <string name="server_lab_remarks">别名 (remarks)</string>
@@ -125,6 +126,32 @@
     <string name="pinned_ca256_action_fetch">获取并填充指纹证书</string>
     <string name="toast_fetch_cert_sha256_success">获取指纹证书完成</string>
     <string name="toast_fetch_cert_sha256_failed">获取证书指纹失败</string>
+    <string name="server_naive_title">NaiveProxy</string>
+    <string name="server_naive_username">用户名（可选）</string>
+    <string name="server_naive_password">密码（可选）</string>
+    <string name="server_naive_transport">传输方式</string>
+    <string name="server_naive_transport_https">HTTPS（HTTP/2）</string>
+    <string name="server_naive_transport_quic">QUIC（HTTP/3）</string>
+    <string name="server_naive_insecure_concurrency">并发隧道数（仅 HTTPS）</string>
+    <string name="server_naive_quic_congestion_control">QUIC 拥塞控制</string>
+    <string name="server_naive_core_default">核心默认值</string>
+    <string name="server_naive_extra_headers">额外请求头</string>
+    <string name="server_naive_header_name">请求头名称</string>
+    <string name="server_naive_header_value">请求头值</string>
+    <string name="server_naive_add_header">添加请求头</string>
+    <string name="server_naive_remove_header">删除请求头</string>
+    <string name="server_naive_udp_over_tcp">通过 TCP 转发 UDP</string>
+    <string name="server_naive_udp_over_tcp_summary">默认开启，推荐使用 v2</string>
+    <string name="server_naive_udp_over_tcp_version">UDP over TCP 版本</string>
+    <string name="server_naive_udp_disabled_warning">关闭 UDP over TCP 后，UDP 流量将无法转发。</string>
+    <string name="server_naive_trusted_root_certificates">受信任的根 CA 证书（PEM，可选）</string>
+    <string name="server_naive_ech_enabled">启用 ECH</string>
+    <string name="server_naive_ech_summary">需要填写固定 ECH 配置或 DNS over HTTPS 地址</string>
+    <string name="server_naive_ech_config">ECH CONFIGS（PEM；填写 DoH 时可留空）</string>
+    <string name="server_naive_ech_query_server_name">ECH 查询服务器名（可选）</string>
+    <string name="server_naive_ech_dns_server">ECH DNS over HTTPS 地址</string>
+    <string name="server_naive_invalid_concurrency">并发隧道数必须是大于等于 1 的整数。</string>
+    <string name="server_naive_invalid_header_name">额外请求头名称不能为空。</string>
 
     <!-- UserAssetActivity -->
     <string name="toast_asset_copy_failed">失败, 请使用文件管理器</string>
