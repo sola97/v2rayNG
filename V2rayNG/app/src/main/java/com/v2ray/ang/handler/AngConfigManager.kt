@@ -188,7 +188,11 @@ object AngConfigManager {
         if (count <= 0) {
             count = parseBatchConfig(server, subid, append)
         }
+        val containsNativeNaiveJson = count <= 0 && NaiveFmt.containsNaiveJson(server)
         if (count <= 0) {
+            count = parseNaiveJsonServer(server, subid, append)
+        }
+        if (count <= 0 && !containsNativeNaiveJson) {
             count = parseCustomConfigServer(server, subid, append)
         }
 
@@ -466,6 +470,32 @@ object AngConfigManager {
         }
     }
 
+    private fun parseNaiveJsonServer(server: String?, subid: String, append: Boolean): Int {
+        if (server.isNullOrBlank()) return 0
+        val trimmed = server.trimStart()
+        if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return 0
+
+        return try {
+            val configs = NaiveFmt.parseJson(server)
+            if (configs.isEmpty()) return 0
+
+            val removedSelected = getRemovedSelectedProfile(subid, append)
+            configs.forEach { config ->
+                config.subscriptionId = subid
+                config.description = generateDescription(config)
+            }
+            if (!append) {
+                MmkvManager.removeServerViaSubid(subid)
+            }
+            val keyToProfile = batchSaveConfigs(configs.reversed(), subid)
+            findMatchedProfileKey(keyToProfile, removedSelected)?.let { MmkvManager.setSelectServer(it) }
+            configs.size
+        } catch (e: Exception) {
+            LogUtil.e(AppConfig.TAG, "Failed to parse native Naive JSON", e)
+            0
+        }
+    }
+
     /**
      * Parses the configuration from a QR code or string.
      * Only parses and returns ProfileItem, does not save.
@@ -671,7 +701,11 @@ object AngConfigManager {
         if (count <= 0) {
             count = parseBatchConfig(server, subid, append)
         }
+        val containsNativeNaiveJson = count <= 0 && NaiveFmt.containsNaiveJson(server)
         if (count <= 0) {
+            count = parseNaiveJsonServer(server, subid, append)
+        }
+        if (count <= 0 && !containsNativeNaiveJson) {
             count = parseCustomConfigServer(server, subid, append)
         }
         return count
