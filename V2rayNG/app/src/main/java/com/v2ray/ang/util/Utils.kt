@@ -172,11 +172,22 @@ object Utils {
                 }
             }
 
+            if (addr.startsWith("[")) {
+                val closingBracket = addr.indexOf(']')
+                if (closingBracket < 0) return false
+
+                val suffix = addr.substring(closingBracket + 1)
+                if (suffix.isNotEmpty() &&
+                    (suffix.first() != ':' || suffix.drop(1).toIntOrNull() == null)
+                ) {
+                    return false
+                }
+                addr = addr.substring(1, closingBracket)
+            }
+
             // Handle IPv4-mapped IPv6 addresses
             if (addr.startsWith("::ffff:") && '.' in addr) {
                 addr = addr.drop(7)
-            } else if (addr.startsWith("[::ffff:") && '.' in addr) {
-                addr = addr.drop(8).replace("]", "")
             }
 
             val octets = addr.split('.')
@@ -574,13 +585,16 @@ object Utils {
      * @return True if the IP is within the CIDR range, false otherwise
      */
     fun isIpInCidr(ip: String, cidr: String): Boolean {
+        val cidrParts = cidr.split("/", limit = 3)
+        if (cidrParts.size != 2) return false
+
+        val cidrIp = cidrParts[0]
+        val prefixLength = cidrParts[1].toIntOrNull() ?: return false
+        if (prefixLength !in 0..32 || !isIpv4Address(ip) || !isIpv4Address(cidrIp)) {
+            return false
+        }
+
         try {
-            if (!isIpAddress(ip)) return false
-
-            // Parse CIDR (e.g., "192.168.1.0/24")
-            val (cidrIp, prefixLen) = cidr.split("/")
-            val prefixLength = prefixLen.toInt()
-
             // Convert IP and CIDR's IP portion to Long
             val ipLong = inetAddressToLong(InetAddress.getByName(ip))
             val cidrIpLong = inetAddressToLong(InetAddress.getByName(cidrIp))

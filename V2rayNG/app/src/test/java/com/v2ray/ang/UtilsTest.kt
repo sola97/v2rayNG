@@ -24,6 +24,7 @@ class UtilsTest {
         assertFalse(Utils.isIpAddress("666.666.666.666"))
         assertFalse(Utils.isIpAddress("256.0.0.0"))
         assertFalse(Utils.isIpAddress("::ffff:127.0.0.0.1"))
+        assertFalse(Utils.isIpAddress("[::1]:not-a-port"))
         assertFalse(Utils.isIpAddress("baidu.com"))
         assertFalse(Utils.isIpAddress(""))
 
@@ -57,6 +58,7 @@ class UtilsTest {
 
         assertFalse(Utils.isIpInCidr("invalid-ip", "192.168.1.0/24"))
         assertFalse(Utils.isIpInCidr("192.168.1.1", "invalid-cidr"))
+        assertFalse(Utils.isIpInCidr("192.168.1.1", "192.168.1.0/33"))
     }
 
 }
