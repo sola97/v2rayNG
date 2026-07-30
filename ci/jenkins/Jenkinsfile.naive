@@ -145,15 +145,24 @@ pipeline {
             steps {
                 sh '''#!/usr/bin/env bash
                     set -euo pipefail
+                    artifact_image="v2rayng-naive-artifact:${BUILD_NUMBER}"
+                    artifact_container="v2rayng-naive-artifact-${BUILD_NUMBER}"
                     rm -f "$ARTIFACT_ROOT/libv2ray.aar"
                     rm -rf "$ARTIFACT_ROOT/apk" "$ARTIFACT_ROOT/test-results" "$ARTIFACT_ROOT/test-reports"
+                    docker rm -f "$artifact_container" >/dev/null 2>&1 || true
+                    docker image rm "$artifact_image" >/dev/null 2>&1 || true
                     docker --config "$WORKSPACE/.docker" buildx build \
                       --file "$BUILD_ROOT/Dockerfile.android" \
                       --build-arg "BUILD_FDROID=${BUILD_FDROID}" \
                       --build-arg "BUILD_PLAYSTORE=${BUILD_PLAYSTORE}" \
                       --target artifact \
-                      --output "type=local,dest=$ARTIFACT_ROOT" \
+                      --load \
+                      --tag "$artifact_image" \
                       "$BUILD_ROOT"
+                    docker create --name "$artifact_container" "$artifact_image" /bin/true >/dev/null
+                    docker cp "${artifact_container}:/." "$ARTIFACT_ROOT"
+                    docker rm "$artifact_container" >/dev/null
+                    docker image rm "$artifact_image" >/dev/null
                 '''
             }
         }
@@ -233,6 +242,8 @@ pipeline {
             archiveArtifacts artifacts: 'artifacts/**', allowEmptyArchive: true, fingerprint: true
             sh '''#!/usr/bin/env bash
                 set +e
+                docker rm -f "v2rayng-naive-artifact-${BUILD_NUMBER}" >/dev/null 2>&1
+                docker image rm "v2rayng-naive-artifact:${BUILD_NUMBER}" >/dev/null 2>&1
                 rm -rf "$BUILD_ROOT/aar-inspect"
             '''
         }
