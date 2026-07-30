@@ -11,6 +11,7 @@ param(
     [switch]$RunAndroidSmoke,
     [switch]$EnsureJob,
     [switch]$UpdateJob,
+    [switch]$ResumeLastBuild,
     [int]$PollSeconds = 8,
     [int]$TimeoutMinutes = 180
 )
@@ -222,37 +223,45 @@ elseif ($UpdateJob) {
     Invoke-JenkinsRequest @updateJobArguments | Out-Null
 }
 
-$buildParameters = @{
-    XRAY_REF = $XrayRef
-    ANDROID_LIB_REF = $AndroidLibRef
-    V2RAYNG_REF = $V2rayNGRef
-    BUILD_FDROID = 'true'
-    BUILD_PLAYSTORE = $BuildPlayStore.IsPresent.ToString().ToLowerInvariant()
-    RUN_E2E = $RunE2E.IsPresent.ToString().ToLowerInvariant()
-    RUN_ANDROID_SMOKE = $RunAndroidSmoke.IsPresent.ToString().ToLowerInvariant()
-}
-
-$triggerArguments = @{
-    Uri = "${jobUrl}buildWithParameters"
-    Headers = $headers
-    Method = 'Post'
-    ContentType = 'application/x-www-form-urlencoded'
-    Body = $buildParameters
-}
-$triggerResponse = Invoke-JenkinsRequest @triggerArguments
-
-$queueUrl = $triggerResponse.Headers.Location
-if (!$queueUrl) { throw 'Jenkins did not return a queue item URL' }
-if (!$queueUrl.IsAbsoluteUri) { $queueUrl = [Uri]::new([Uri]$JenkinsUrl, $queueUrl) }
-
 $deadline = [DateTimeOffset]::UtcNow.AddMinutes($TimeoutMinutes)
 $buildNumber = $null
-while (!$buildNumber) {
-    if ([DateTimeOffset]::UtcNow -gt $deadline) { throw 'Timed out waiting for Jenkins to start the build' }
-    Start-Sleep -Seconds $PollSeconds
-    $queueItem = Invoke-RestMethod -Uri ($queueUrl.AbsoluteUri.TrimEnd('/') + '/api/json') -Headers $headers
-    if ($queueItem.cancelled) { throw 'Jenkins cancelled the queued build' }
-    if ($queueItem.executable.number) { $buildNumber = [int]$queueItem.executable.number }
+if ($ResumeLastBuild) {
+    $jobState = Invoke-RestMethod -Uri "${jobUrl}api/json?tree=lastBuild[number]" -Headers $headers
+    if (!$jobState.lastBuild.number) { throw "Jenkins job '$JobName' has no build to resume" }
+    $buildNumber = [int]$jobState.lastBuild.number
+}
+else {
+    $buildParameters = @{
+        XRAY_REF = $XrayRef
+        ANDROID_LIB_REF = $AndroidLibRef
+        V2RAYNG_REF = $V2rayNGRef
+        BUILD_FDROID = 'true'
+        BUILD_PLAYSTORE = $BuildPlayStore.IsPresent.ToString().ToLowerInvariant()
+        RUN_E2E = $RunE2E.IsPresent.ToString().ToLowerInvariant()
+        RUN_ANDROID_SMOKE = $RunAndroidSmoke.IsPresent.ToString().ToLowerInvariant()
+    }
+
+    $triggerArguments = @{
+        Uri = "${jobUrl}buildWithParameters"
+        Headers = $headers
+        Method = 'Post'
+        ContentType = 'application/x-www-form-urlencoded'
+        Body = $buildParameters
+    }
+    $triggerResponse = Invoke-JenkinsRequest @triggerArguments
+
+    $queueLocation = [string]$triggerResponse.Headers.Location
+    if (!$queueLocation) { throw 'Jenkins did not return a queue item URL' }
+    $queueUrl = [Uri]$queueLocation
+    if (!$queueUrl.IsAbsoluteUri) { $queueUrl = [Uri]::new([Uri]$JenkinsUrl, $queueUrl) }
+
+    while (!$buildNumber) {
+        if ([DateTimeOffset]::UtcNow -gt $deadline) { throw 'Timed out waiting for Jenkins to start the build' }
+        Start-Sleep -Seconds $PollSeconds
+        $queueItem = Invoke-RestMethod -Uri ($queueUrl.AbsoluteUri.TrimEnd('/') + '/api/json') -Headers $headers
+        if ($queueItem.cancelled) { throw 'Jenkins cancelled the queued build' }
+        if ($queueItem.executable.number) { $buildNumber = [int]$queueItem.executable.number }
+    }
 }
 
 $buildUrl = "${jobUrl}${buildNumber}/"

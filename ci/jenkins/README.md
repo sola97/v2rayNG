@@ -26,6 +26,12 @@ After the job exists, the normal command is:
 & .\ci\jenkins\invoke-v2rayng-naive-ci.ps1
 ```
 
+If the local process is interrupted after Jenkins accepted a build, resume monitoring without triggering a duplicate build:
+
+```powershell
+& .\ci\jenkins\invoke-v2rayng-naive-ci.ps1 -ResumeLastBuild
+```
+
 Use `-UpdateJob` only when the checked-in Pipeline-from-SCM job definition changes. The runner reads the existing DPAPI-protected Jenkins credential file and never prints its token or authorization header.
 
 ## Resource policy
