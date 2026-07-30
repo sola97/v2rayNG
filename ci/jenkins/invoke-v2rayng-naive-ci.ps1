@@ -70,7 +70,7 @@ function Get-JobConfigXml {
 <?xml version='1.1' encoding='UTF-8'?>
 <flow-definition plugin="workflow-job">
   <actions/>
-  <description>Native NaiveProxy Android CI. Builds pinned Xray-core and AndroidLibXrayLite forks in Docker without modifying other Jenkins jobs.</description>
+  <description>Native NaiveProxy Android CI. Builds pinned Xray-core, AndroidLibXrayLite, and v2rayNG forks in Docker without modifying other Jenkins jobs.</description>
   <keepDependencies>false</keepDependencies>
   <properties>
     <hudson.model.ParametersDefinitionProperty>

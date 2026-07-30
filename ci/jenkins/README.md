@@ -8,9 +8,10 @@ This directory owns the isolated Jenkins/Docker build for the native NaiveProxy 
 
 1. runs the focused Xray Naive, config, singbridge, and Shadowsocks 2022 tests;
 2. builds `libv2ray.aar` from the approved AndroidLibXrayLite fork;
-3. exports only the AAR artifact.
+3. places that exact AAR in v2rayNG and runs the F-Droid debug unit tests;
+4. builds the requested debug APK variants and exports the AAR, APKs, JUnit XML, and HTML test report.
 
-The Jenkins pipeline then verifies all four Android ABIs and the `CoreController.notifyNetworkChanged()` binding before archiving the artifact, its checksum, API listing, source commit manifest, and size report.
+The Jenkins pipeline verifies all four AAR ABIs, the `CoreController.notifyNetworkChanged()` binding, every produced APK as a ZIP, and all four native ABIs in the universal APK before archiving checksums, API listings, source commits, JUnit results, and size reports.
 
 ## Jenkins job
 
@@ -36,9 +37,10 @@ Use `-UpdateJob` only when the checked-in Pipeline-from-SCM job definition chang
 
 ## Resource policy
 
-- Builds are serialized and limited to one Go package worker and one Go runtime thread.
+- Builds are serialized and limited to one Go package worker, one Go runtime thread, and one Gradle worker.
 - A build fails when the workspace filesystem has less than 12 GiB free.
 - BuildKit Go module and build caches use names scoped to this pipeline; the workspace-local Buildx plugin does not modify the Jenkins container image.
+- The Gradle user home is a locked BuildKit cache scoped to this pipeline; the Kotlin compiler runs in-process with a 1.5 GiB JVM heap.
 - The Docker build removes only non-Android Cronet platform modules from this pipeline's named Go module cache; it keeps the four Android libraries and never prunes Docker globally.
 - The pipeline does not run `docker system prune` or remove unrelated images, volumes, containers, jobs, or workspaces.
 - E2E and Android smoke switches fail closed until their isolated service/device stages are checked in.

@@ -141,19 +141,19 @@ pipeline {
             }
         }
 
-        stage('Linux tests and Android AAR') {
+        stage('Linux tests, Android AAR and app') {
             steps {
                 sh '''#!/usr/bin/env bash
                     set -euo pipefail
-                    rm -rf "$ARTIFACT_ROOT/aar-output"
-                    mkdir -p "$ARTIFACT_ROOT/aar-output"
+                    rm -f "$ARTIFACT_ROOT/libv2ray.aar"
+                    rm -rf "$ARTIFACT_ROOT/apk" "$ARTIFACT_ROOT/test-results" "$ARTIFACT_ROOT/test-reports"
                     docker --config "$WORKSPACE/.docker" buildx build \
                       --file "$BUILD_ROOT/Dockerfile.android" \
+                      --build-arg "BUILD_FDROID=${BUILD_FDROID}" \
+                      --build-arg "BUILD_PLAYSTORE=${BUILD_PLAYSTORE}" \
                       --target artifact \
-                      --output "type=local,dest=$ARTIFACT_ROOT/aar-output" \
+                      --output "type=local,dest=$ARTIFACT_ROOT" \
                       "$BUILD_ROOT"
-                    mv "$ARTIFACT_ROOT/aar-output/libv2ray.aar" "$ARTIFACT_ROOT/libv2ray.aar"
-                    rmdir "$ARTIFACT_ROOT/aar-output"
                 '''
             }
         }
@@ -184,13 +184,45 @@ pipeline {
             }
         }
 
-        stage('Reserved app and E2E gates') {
+        stage('Verify Android tests and APK') {
+            steps {
+                sh '''#!/usr/bin/env bash
+                    set -euo pipefail
+                    test_result_count="$(find "$ARTIFACT_ROOT/test-results" -type f -name '*.xml' | wc -l)"
+                    test "$test_result_count" -gt 0
+
+                    if [ "$BUILD_FDROID" = 'true' ] || [ "$BUILD_PLAYSTORE" = 'true' ]; then
+                      apk_count="$(find "$ARTIFACT_ROOT/apk" -maxdepth 1 -type f -name '*.apk' | wc -l)"
+                      test "$apk_count" -gt 0
+                      : > "$ARTIFACT_ROOT/apk-contents.txt"
+                      : > "$ARTIFACT_ROOT/apk.sha256"
+                      : > "$ARTIFACT_ROOT/apk-sizes.txt"
+                      while IFS= read -r apk; do
+                        unzip -t "$apk"
+                        echo "===== $(basename "$apk") =====" >> "$ARTIFACT_ROOT/apk-contents.txt"
+                        unzip -l "$apk" >> "$ARTIFACT_ROOT/apk-contents.txt"
+                        sha256sum "$apk" >> "$ARTIFACT_ROOT/apk.sha256"
+                        du -h "$apk" >> "$ARTIFACT_ROOT/apk-sizes.txt"
+                      done < <(find "$ARTIFACT_ROOT/apk" -maxdepth 1 -type f -name '*.apk' | sort)
+
+                      universal_apk="$(find "$ARTIFACT_ROOT/apk" -maxdepth 1 -type f -name '*universal*.apk' -print -quit)"
+                      test -n "$universal_apk"
+                      for abi in armeabi-v7a arm64-v8a x86 x86_64; do
+                        unzip -Z1 "$universal_apk" | grep -Fx "lib/${abi}/libgojni.so"
+                      done
+                    fi
+                '''
+                junit testResults: 'artifacts/test-results/*.xml', allowEmptyResults: false
+            }
+        }
+
+        stage('Reserved E2E and device gates') {
             steps {
                 script {
                     if (params.RUN_E2E || params.RUN_ANDROID_SMOKE) {
-                        error('E2E and Android smoke gates are intentionally disabled until the app integration and isolated test service land')
+                        error('E2E and Android smoke gates are intentionally disabled until their isolated service or authorized device stage lands')
                     }
-                    echo "AAR validation complete. App build flags: F-Droid=${params.BUILD_FDROID}, Play Store=${params.BUILD_PLAYSTORE}"
+                    echo "Android validation complete. App build flags: F-Droid=${params.BUILD_FDROID}, Play Store=${params.BUILD_PLAYSTORE}"
                 }
             }
         }

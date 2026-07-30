@@ -4,6 +4,9 @@
 !xray/**
 !androidlib/
 !androidlib/**
+!v2rayng/
+!v2rayng/V2rayNG/
+!v2rayng/V2rayNG/**
 xray/.git
 xray/.github
 androidlib/.git
@@ -12,3 +15,8 @@ androidlib/data
 androidlib/assets
 androidlib/*.aar
 androidlib/*.jar
+v2rayng/.git
+v2rayng/.github
+v2rayng/V2rayNG/.gradle
+v2rayng/V2rayNG/**/build
+v2rayng/V2rayNG/app/libs

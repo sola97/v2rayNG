@@ -10,6 +10,8 @@ ARG ANDROID_PLATFORM_PACKAGE=37.0
 ARG ANDROID_BUILD_TOOLS=37.0.0
 ARG ANDROID_NDK_VERSION=29.0.14206865
 ARG GOMOBILE_VERSION=v0.0.0-20260709172247-6129f5bee9d5
+ARG BUILD_FDROID=true
+ARG BUILD_PLAYSTORE=false
 
 ENV ANDROID_HOME=/opt/android-sdk \
     ANDROID_SDK_ROOT=/opt/android-sdk \
@@ -134,5 +136,41 @@ RUN --mount=type=cache,id=v2rayng-naive-go-mod,target=/go/pkg/mod \
         ./ \
     && test -s /out/libv2ray.aar
 
+WORKDIR /src/v2rayng
+COPY v2rayng/ ./
+
+RUN mkdir -p V2rayNG/app/libs /out/apk /out/test-results /out/test-reports \
+    && cp /out/libv2ray.aar V2rayNG/app/libs/libv2ray.aar
+
+WORKDIR /src/v2rayng/V2rayNG
+
+RUN --mount=type=cache,id=v2rayng-naive-gradle-user-home,target=/root/.gradle,sharing=locked \
+    set -eu \
+    && tasks='testFdroidDebugUnitTest' \
+    && if test "${BUILD_FDROID}" = 'true'; then tasks="${tasks} assembleFdroidDebug"; fi \
+    && if test "${BUILD_PLAYSTORE}" = 'true'; then tasks="${tasks} assemblePlaystoreDebug"; fi \
+    && ./gradlew \
+        --no-daemon \
+        --stacktrace \
+        --max-workers=1 \
+        -Dorg.gradle.jvmargs='-Xmx1536m -Dfile.encoding=UTF-8' \
+        -Pkotlin.compiler.execution.strategy=in-process \
+        ${tasks} \
+    && find app/build/test-results/testFdroidDebugUnitTest -type f -name '*.xml' \
+        -exec cp -v {} /out/test-results/ \; \
+    && cp -R app/build/reports/tests/testFdroidDebugUnitTest/. /out/test-reports/ \
+    && if test "${BUILD_FDROID}" = 'true'; then \
+        find app/build/outputs/apk/fdroid/debug -maxdepth 1 -type f -name '*.apk' \
+            -exec cp -v {} /out/apk/ \;; \
+    fi \
+    && if test "${BUILD_PLAYSTORE}" = 'true'; then \
+        find app/build/outputs/apk/playstore/debug -maxdepth 1 -type f -name '*.apk' \
+            -exec cp -v {} /out/apk/ \;; \
+    fi \
+    && test -n "$(find /out/test-results -type f -name '*.xml' -print -quit)" \
+    && if test "${BUILD_FDROID}" = 'true' || test "${BUILD_PLAYSTORE}" = 'true'; then \
+        test -n "$(find /out/apk -type f -name '*.apk' -print -quit)"; \
+    fi
+
 FROM scratch AS artifact
-COPY --from=builder /out/libv2ray.aar /
+COPY --from=builder /out/ /
