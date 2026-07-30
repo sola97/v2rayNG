@@ -129,7 +129,13 @@ pipeline {
                       echo "AndroidLib go.mod is not pinned to the selected Xray commit ${xray_sha}" >&2
                       exit 21
                     fi
-                    grep -F 'github.com/sagernet/cronet-go/all ' "$BUILD_ROOT/androidlib/go.mod"
+                    for module in android_386 android_amd64 android_arm android_arm64; do
+                      grep -F "github.com/sagernet/cronet-go/lib/${module} " "$BUILD_ROOT/androidlib/go.mod"
+                    done
+                    if grep -Eq 'github.com/sagernet/cronet-go/(all|lib/(darwin|ios|linux|tvos|windows))' "$BUILD_ROOT/androidlib/go.mod"; then
+                      echo 'AndroidLib must not resolve non-Android Cronet platform modules' >&2
+                      exit 22
+                    fi
                     grep -F 'func (x *CoreController) NotifyNetworkChanged()' "$BUILD_ROOT/androidlib/libv2ray_naive.go"
                 '''
             }

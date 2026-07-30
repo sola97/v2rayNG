@@ -26,7 +26,7 @@ v2rayNG 当前不能把 NaiveProxy 作为原生节点使用，已有方案通常
 3. UoT 默认开启，默认版本固定为 v2；v1 仅用于旧服务端兼容。
 4. 手机端提供完整配置页，不把高级参数写死在核心或 Jenkins 中。
 5. NUC 上新增独立 sing-box Naive 测试容器，不修改现有 Caddy、UAMS、Old DC Job 或容器。
-6. Jenkins 不从 Chromium 源码构建 Cronet，而是使用 `cronet-go/all` 发布的按平台 Go 模块及其中的预构建静态库。
+6. Jenkins 不从 Chromium 源码构建 Cronet，而是使用 `cronet-go/lib/android_*` 发布的四个 Android 平台 Go 模块及其中的预构建静态库。
 7. 不提供底层不支持的“跳过证书验证”选项。
 
 ## 3. 非目标
@@ -79,7 +79,7 @@ flowchart TD
 边界要求：
 
 - v2rayNG 只处理配置、展示和 JSON 生成，不直接调用 Cronet。
-- AndroidLibXrayLite 只负责绑定和打包，不承载协议业务逻辑；它负责空导入 `cronet-go/all`，使 Android 四 ABI 的 Cronet 静态库进入最终 AAR。
+- AndroidLibXrayLite 只负责绑定和打包，不承载协议业务逻辑；它通过 Android/架构 build tags 分别空导入四个 `cronet-go/lib/android_*` 模块，使对应 ABI 的 Cronet 静态库进入最终 AAR。
 - Xray-core 负责 Naive 的实际连接、DNS、UoT、生命周期、日志和失败语义。
 - sing-box 仅作为测试服务端，不进入 Android APK 客户端架构。
 
@@ -269,7 +269,7 @@ Xray-core 固定引入：
 - `github.com/sagernet/cronet-go`
 - `github.com/sagernet/sing/common/uot`
 
-AndroidLibXrayLite 固定引入并空导入 `github.com/sagernet/cronet-go/all`。这样 Xray-core 保持通用核心边界，Android 绑定层通过平台 build tags 链接当前目标的预构建静态库。Android 四个 ABI 分别由 Go 模块提供，不在 Jenkins 中编译 Chromium。
+AndroidLibXrayLite 固定引入 `github.com/sagernet/cronet-go/lib/android_386`、`android_amd64`、`android_arm` 和 `android_arm64`，并在对应 Android/架构 build-tag 文件中空导入。这样 Xray-core 保持通用核心边界，Android 绑定层只解析并链接四个 Android 预构建静态库，不会因为 `cronet-go/all` 的模块图下载桌面和 iOS/tvOS 库。Android 四个 ABI 分别由 Go 模块提供，不在 Jenkins 中编译 Chromium。
 
 引入 Cronet 会提升 `github.com/sagernet/sing` 的最小版本。实施前必须先运行 Xray 现有 `common/singbridge`、Shadowsocks 2022 和相关 Go 测试；不能只验证新包编译。
 
