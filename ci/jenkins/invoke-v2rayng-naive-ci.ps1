@@ -262,9 +262,9 @@ else {
         if ($queueItem.PSObject.Properties['cancelled'] -and $queueItem.cancelled) {
             throw 'Jenkins cancelled the queued build'
         }
-        if ($queueItem.PSObject.Properties['executable']
-            -and $null -ne $queueItem.executable
-            -and $queueItem.executable.PSObject.Properties['number']) {
+        if ($queueItem.PSObject.Properties['executable'] -and
+            $null -ne $queueItem.executable -and
+            $queueItem.executable.PSObject.Properties['number']) {
             $buildNumber = [int]$queueItem.executable.number
         }
     }
