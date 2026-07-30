@@ -20,8 +20,18 @@ object NaiveConfigValidator {
         "-connect-authority",
         "-force-quic",
         "-network-isolation-key",
+        "connection",
+        "content-length",
+        "host",
+        "keep-alive",
         "padding",
-        "proxy-authorization"
+        "proxy-authenticate",
+        "proxy-authorization",
+        "proxy-connection",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade"
     )
 
     fun validate(config: ProfileItem): String? {

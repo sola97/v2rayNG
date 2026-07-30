@@ -85,6 +85,36 @@ class NaiveFmtTest {
     }
 
     @Test
+    fun rejectsTransportManagedExtraHeaders() {
+        val reservedHeaders = listOf(
+            "-Connect-Authority",
+            "-Force-QUIC",
+            "-Network-Isolation-Key",
+            "Connection",
+            "Content-Length",
+            "Host",
+            "Keep-Alive",
+            "Padding",
+            "Proxy-Authenticate",
+            "Proxy-Authorization",
+            "Proxy-Connection",
+            "TE",
+            "Trailer",
+            "Transfer-Encoding",
+            "Upgrade"
+        )
+        for (header in reservedHeaders) {
+            val profile = ProfileItem.create(EConfigType.NAIVE).apply {
+                server = "naive.example.com"
+                serverPort = "443"
+                naiveExtraHeaders = mapOf(header to "value")
+            }
+            val error = NaiveConfigValidator.validate(profile)
+            assertTrue("Expected $header to be reserved, got $error", error?.contains("Reserved") == true)
+        }
+    }
+
+    @Test
     fun ignoresUnknownQueryParameters() {
         val profile = NaiveFmt.parse(
             "naive+https://u:p@example.com:443?future-option=enabled"

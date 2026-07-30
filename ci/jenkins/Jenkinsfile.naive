@@ -18,7 +18,7 @@ pipeline {
     }
 
     parameters {
-        string(name: 'XRAY_REF', defaultValue: 'd4997a5569da8da76fc96d37fce0411e39076908', description: 'Ref in sola97/Xray-core')
+        string(name: 'XRAY_REF', defaultValue: '3ac438417f44ad853477a3f317f27ae18620f6b0', description: 'Ref in sola97/Xray-core')
         string(name: 'ANDROID_LIB_REF', defaultValue: 'feature/native-naiveproxy', description: 'Ref in sola97/AndroidLibXrayLite')
         string(name: 'V2RAYNG_REF', defaultValue: 'feature/native-naiveproxy', description: 'Ref in sola97/v2rayNG')
         booleanParam(name: 'BUILD_FDROID', defaultValue: true, description: 'Build the F-Droid debug APK when app stages are enabled')
