@@ -176,7 +176,7 @@ pipeline {
                     unzip -q "$aar" classes.jar -d "$BUILD_ROOT/aar-inspect"
                     javap -classpath "$BUILD_ROOT/aar-inspect/classes.jar" libv2ray.CoreController \
                       > "$ARTIFACT_ROOT/core-controller-api.txt"
-                    grep -Eq 'public (final )?native void notifyNetworkChanged\(\);' "$ARTIFACT_ROOT/core-controller-api.txt"
+                    grep -F 'public native void notifyNetworkChanged();' "$ARTIFACT_ROOT/core-controller-api.txt"
 
                     sha256sum "$aar" > "$ARTIFACT_ROOT/libv2ray.aar.sha256"
                     du -h "$aar" > "$ARTIFACT_ROOT/artifact-size.txt"
