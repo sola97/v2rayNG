@@ -79,7 +79,7 @@ flowchart TD
 边界要求：
 
 - v2rayNG 只处理配置、展示和 JSON 生成，不直接调用 Cronet。
-- AndroidLibXrayLite 只负责绑定和打包，不承载协议业务逻辑。
+- AndroidLibXrayLite 只负责绑定和打包，不承载协议业务逻辑；它负责空导入 `cronet-go/all`，使 Android 四 ABI 的 Cronet 静态库进入最终 AAR。
 - Xray-core 负责 Naive 的实际连接、DNS、UoT、生命周期、日志和失败语义。
 - sing-box 仅作为测试服务端，不进入 Android APK 客户端架构。
 
@@ -264,13 +264,12 @@ Naive 自己已经管理连接池和并发隧道，v2rayNG 全局 Mux 必须对 
 
 ### 10.2 依赖
 
-固定引入：
+Xray-core 固定引入：
 
 - `github.com/sagernet/cronet-go`
-- `github.com/sagernet/cronet-go/all`
 - `github.com/sagernet/sing/common/uot`
 
-`cronet-go/all` 通过平台 build tags 只链接当前目标的预构建静态库。Android 四个 ABI 分别由 Go 模块提供，不在 Jenkins 中编译 Chromium。
+AndroidLibXrayLite 固定引入并空导入 `github.com/sagernet/cronet-go/all`。这样 Xray-core 保持通用核心边界，Android 绑定层通过平台 build tags 链接当前目标的预构建静态库。Android 四个 ABI 分别由 Go 模块提供，不在 Jenkins 中编译 Chromium。
 
 引入 Cronet 会提升 `github.com/sagernet/sing` 的最小版本。实施前必须先运行 Xray 现有 `common/singbridge`、Shadowsocks 2022 和相关 Go 测试；不能只验证新包编译。
 

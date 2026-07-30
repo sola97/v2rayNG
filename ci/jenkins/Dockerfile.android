@@ -1,0 +1,93 @@
+# syntax=docker/dockerfile:1.7
+
+FROM eclipse-temurin:17-jdk-jammy@sha256:61a9a7bd265855cb9ebdd396f5925b16dbdde01feb9b97a87f7f6008fc39c2b4 AS builder
+
+ARG GO_VERSION=1.26.0
+ARG GO_SHA256=aac1b08a0fb0c4e0a7c1555beb7b59180b05dfc5a3d62e40e9de90cd42f88235
+ARG ANDROID_COMMAND_LINE_TOOLS_VERSION=14742923
+ARG ANDROID_COMMAND_LINE_TOOLS_SHA1=48833c34b761c10cb20bcd16582129395d121b27
+ARG ANDROID_PLATFORM=37
+ARG ANDROID_BUILD_TOOLS=37.0.0
+ARG ANDROID_NDK_VERSION=29.0.14206865
+ARG GOMOBILE_VERSION=v0.0.0-20260709172247-6129f5bee9d5
+
+ENV ANDROID_HOME=/opt/android-sdk \
+    ANDROID_SDK_ROOT=/opt/android-sdk \
+    ANDROID_NDK_HOME=/opt/android-sdk/ndk/29.0.14206865 \
+    GOPATH=/go \
+    GOMAXPROCS=1 \
+    GOFLAGS=-p=1 \
+    PATH=/usr/local/go/bin:/go/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:${PATH}
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        jq \
+        make \
+        unzip \
+        zip \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl --fail --location --retry 4 \
+        "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
+        --output /tmp/go.tar.gz \
+    && echo "${GO_SHA256}  /tmp/go.tar.gz" | sha256sum --check --strict \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz \
+    && rm /tmp/go.tar.gz \
+    && go version
+
+RUN mkdir -p "${ANDROID_HOME}/cmdline-tools" \
+    && curl --fail --location --retry 4 \
+        "https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_COMMAND_LINE_TOOLS_VERSION}_latest.zip" \
+        --output /tmp/android-command-line-tools.zip \
+    && echo "${ANDROID_COMMAND_LINE_TOOLS_SHA1}  /tmp/android-command-line-tools.zip" | sha1sum --check --strict \
+    && unzip -q /tmp/android-command-line-tools.zip -d /tmp/android-command-line-tools \
+    && mv /tmp/android-command-line-tools/cmdline-tools "${ANDROID_HOME}/cmdline-tools/latest" \
+    && rm -rf /tmp/android-command-line-tools /tmp/android-command-line-tools.zip \
+    && yes | sdkmanager --licenses >/dev/null \
+    && sdkmanager \
+        "platform-tools" \
+        "platforms;android-${ANDROID_PLATFORM}" \
+        "build-tools;${ANDROID_BUILD_TOOLS}" \
+        "ndk;${ANDROID_NDK_VERSION}" \
+    && sdkmanager --list_installed
+
+RUN --mount=type=cache,id=v2rayng-naive-go-mod,target=/go/pkg/mod \
+    --mount=type=cache,id=v2rayng-naive-go-build,target=/root/.cache/go-build \
+    go install "golang.org/x/mobile/cmd/gomobile@${GOMOBILE_VERSION}" \
+    && gomobile init
+
+WORKDIR /src/xray
+COPY xray/ ./
+
+RUN --mount=type=cache,id=v2rayng-naive-go-mod,target=/go/pkg/mod \
+    --mount=type=cache,id=v2rayng-naive-go-build,target=/root/.cache/go-build \
+    go test -tags with_purego ./proxy/naive \
+    && go test -tags with_purego ./infra/conf -run '^TestNaive' \
+    && go test -tags with_purego ./common/singbridge ./proxy/shadowsocks_2022
+
+WORKDIR /src/androidlib
+COPY androidlib/ ./
+
+RUN mkdir -p assets data /out \
+    && bash gen_assets.sh download \
+    && test -s data/geoip.dat \
+    && test -s data/geosite.dat \
+    && test -s data/geoip-only-cn-private.dat \
+    && cp -v data/*.dat assets/
+
+RUN --mount=type=cache,id=v2rayng-naive-go-mod,target=/go/pkg/mod \
+    --mount=type=cache,id=v2rayng-naive-go-build,target=/root/.cache/go-build \
+    gomobile bind \
+        -v \
+        -androidapi 24 \
+        -trimpath \
+        -ldflags='-s -w -buildid= -checklinkname=0' \
+        -o /out/libv2ray.aar \
+        ./ \
+    && test -s /out/libv2ray.aar
+
+FROM scratch AS artifact
+COPY --from=builder /out/libv2ray.aar /

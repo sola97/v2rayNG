@@ -1,0 +1,14 @@
+**
+!Dockerfile.android
+!xray/
+!xray/**
+!androidlib/
+!androidlib/**
+xray/.git
+xray/.github
+androidlib/.git
+androidlib/.github
+androidlib/data
+androidlib/assets
+androidlib/*.aar
+androidlib/*.jar

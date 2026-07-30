@@ -1,0 +1,181 @@
+import groovy.json.JsonOutput
+
+def validateGitRef(String name, String value) {
+    if (!(value ==~ /[A-Za-z0-9._\/-]{1,160}/) || value.contains('..') || value.startsWith('/') || value.endsWith('/')) {
+        error("${name} is not a safe Git ref")
+    }
+}
+
+pipeline {
+    agent { label 'nuc-docker' }
+
+    options {
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds()
+        timeout(time: 150, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '12', artifactNumToKeepStr: '6'))
+        timestamps()
+    }
+
+    parameters {
+        string(name: 'XRAY_REF', defaultValue: 'd4997a5569da8da76fc96d37fce0411e39076908', description: 'Ref in sola97/Xray-core')
+        string(name: 'ANDROID_LIB_REF', defaultValue: 'feature/native-naiveproxy', description: 'Ref in sola97/AndroidLibXrayLite')
+        string(name: 'V2RAYNG_REF', defaultValue: 'feature/native-naiveproxy', description: 'Ref in sola97/v2rayNG')
+        booleanParam(name: 'BUILD_FDROID', defaultValue: true, description: 'Build the F-Droid debug APK when app stages are enabled')
+        booleanParam(name: 'BUILD_PLAYSTORE', defaultValue: false, description: 'Build the Play Store debug APK when app stages are enabled')
+        booleanParam(name: 'RUN_E2E', defaultValue: false, description: 'Run isolated sing-box Naive end-to-end tests')
+        booleanParam(name: 'RUN_ANDROID_SMOKE', defaultValue: false, description: 'Run smoke tests only when an authorized ADB device is attached')
+    }
+
+    environment {
+        BUILD_ROOT = '.ci-work'
+        ARTIFACT_ROOT = 'artifacts'
+        DOCKER_BUILDKIT = '1'
+        BUILDKIT_PROGRESS = 'plain'
+    }
+
+    stages {
+        stage('Validate parameters') {
+            steps {
+                script {
+                    validateGitRef('XRAY_REF', params.XRAY_REF.trim())
+                    validateGitRef('ANDROID_LIB_REF', params.ANDROID_LIB_REF.trim())
+                    validateGitRef('V2RAYNG_REF', params.V2RAYNG_REF.trim())
+                }
+            }
+        }
+
+        stage('Resource preflight') {
+            steps {
+                sh '''#!/usr/bin/env bash
+                    set -euo pipefail
+                    available_kb="$(df -Pk "$WORKSPACE" | awk 'NR==2 {print $4}')"
+                    minimum_kb=$((12 * 1024 * 1024))
+                    if (( available_kb < minimum_kb )); then
+                      echo "At least 12 GiB free is required; available: $((available_kb / 1024 / 1024)) GiB" >&2
+                      exit 20
+                    fi
+                    docker version
+                    docker info --format 'Docker root: {{.DockerRootDir}}; driver: {{.Driver}}'
+                    free -h
+                    df -h "$WORKSPACE"
+                '''
+            }
+        }
+
+        stage('Checkout fixed forks') {
+            steps {
+                deleteDir()
+                sh '''#!/usr/bin/env bash
+                    set -euo pipefail
+                    mkdir -p "$BUILD_ROOT" "$ARTIFACT_ROOT"
+
+                    git clone --filter=blob:none --no-checkout https://github.com/sola97/v2rayNG.git "$BUILD_ROOT/v2rayng"
+                    git -C "$BUILD_ROOT/v2rayng" fetch --depth=1 origin "$V2RAYNG_REF"
+                    git -C "$BUILD_ROOT/v2rayng" checkout --detach FETCH_HEAD
+
+                    git clone --filter=blob:none --no-checkout https://github.com/sola97/Xray-core.git "$BUILD_ROOT/xray"
+                    git -C "$BUILD_ROOT/xray" fetch --depth=1 origin "$XRAY_REF"
+                    git -C "$BUILD_ROOT/xray" checkout --detach FETCH_HEAD
+
+                    git clone --filter=blob:none --no-checkout https://github.com/sola97/AndroidLibXrayLite.git "$BUILD_ROOT/androidlib"
+                    git -C "$BUILD_ROOT/androidlib" fetch --depth=1 origin "$ANDROID_LIB_REF"
+                    git -C "$BUILD_ROOT/androidlib" checkout --detach FETCH_HEAD
+
+                    cp "$BUILD_ROOT/v2rayng/ci/jenkins/Dockerfile.android" "$BUILD_ROOT/Dockerfile.android"
+                    cp "$BUILD_ROOT/v2rayng/ci/jenkins/.dockerignore.android" "$BUILD_ROOT/.dockerignore"
+                '''
+                script {
+                    def manifest = [
+                        xray: sh(returnStdout: true, script: "git -C '${env.BUILD_ROOT}/xray' rev-parse HEAD").trim(),
+                        androidLib: sh(returnStdout: true, script: "git -C '${env.BUILD_ROOT}/androidlib' rev-parse HEAD").trim(),
+                        v2rayNG: sh(returnStdout: true, script: "git -C '${env.BUILD_ROOT}/v2rayng' rev-parse HEAD").trim(),
+                        buildNumber: env.BUILD_NUMBER,
+                        buildUrl: env.BUILD_URL
+                    ]
+                    writeFile file: "${env.ARTIFACT_ROOT}/commit-manifest.json", text: JsonOutput.prettyPrint(JsonOutput.toJson(manifest)) + '\n'
+                }
+            }
+        }
+
+        stage('Dependency consistency') {
+            steps {
+                sh '''#!/usr/bin/env bash
+                    set -euo pipefail
+                    xray_sha="$(git -C "$BUILD_ROOT/xray" rev-parse HEAD)"
+                    short_sha="${xray_sha:0:12}"
+                    if ! grep -Eq "github.com/sola97/Xray-core v[^[:space:]]*-${short_sha}([[:space:]]|$)" "$BUILD_ROOT/androidlib/go.mod"; then
+                      echo "AndroidLib go.mod is not pinned to the selected Xray commit ${xray_sha}" >&2
+                      exit 21
+                    fi
+                    grep -F 'github.com/sagernet/cronet-go/all ' "$BUILD_ROOT/androidlib/go.mod"
+                    grep -F 'func (x *CoreController) NotifyNetworkChanged()' "$BUILD_ROOT/androidlib/libv2ray_naive.go"
+                '''
+            }
+        }
+
+        stage('Linux tests and Android AAR') {
+            steps {
+                sh '''#!/usr/bin/env bash
+                    set -euo pipefail
+                    rm -rf "$ARTIFACT_ROOT/aar-output"
+                    mkdir -p "$ARTIFACT_ROOT/aar-output"
+                    docker build \
+                      --file "$BUILD_ROOT/Dockerfile.android" \
+                      --target artifact \
+                      --output "type=local,dest=$ARTIFACT_ROOT/aar-output" \
+                      "$BUILD_ROOT"
+                    mv "$ARTIFACT_ROOT/aar-output/libv2ray.aar" "$ARTIFACT_ROOT/libv2ray.aar"
+                    rmdir "$ARTIFACT_ROOT/aar-output"
+                '''
+            }
+        }
+
+        stage('Verify AAR') {
+            steps {
+                sh '''#!/usr/bin/env bash
+                    set -euo pipefail
+                    aar="$ARTIFACT_ROOT/libv2ray.aar"
+                    test -s "$aar"
+                    unzip -t "$aar"
+                    unzip -l "$aar" > "$ARTIFACT_ROOT/aar-contents.txt"
+
+                    for abi in armeabi-v7a arm64-v8a x86 x86_64; do
+                      unzip -Z1 "$aar" | grep -Fx "jni/${abi}/libgojni.so"
+                    done
+
+                    rm -rf "$BUILD_ROOT/aar-inspect"
+                    mkdir -p "$BUILD_ROOT/aar-inspect"
+                    unzip -q "$aar" classes.jar -d "$BUILD_ROOT/aar-inspect"
+                    javap -classpath "$BUILD_ROOT/aar-inspect/classes.jar" libv2ray.CoreController \
+                      > "$ARTIFACT_ROOT/core-controller-api.txt"
+                    grep -F 'public void notifyNetworkChanged();' "$ARTIFACT_ROOT/core-controller-api.txt"
+
+                    sha256sum "$aar" > "$ARTIFACT_ROOT/libv2ray.aar.sha256"
+                    du -h "$aar" > "$ARTIFACT_ROOT/artifact-size.txt"
+                '''
+            }
+        }
+
+        stage('Reserved app and E2E gates') {
+            steps {
+                script {
+                    if (params.RUN_E2E || params.RUN_ANDROID_SMOKE) {
+                        error('E2E and Android smoke gates are intentionally disabled until the app integration and isolated test service land')
+                    }
+                    echo "AAR validation complete. App build flags: F-Droid=${params.BUILD_FDROID}, Play Store=${params.BUILD_PLAYSTORE}"
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'artifacts/**', allowEmptyArchive: true, fingerprint: true
+            sh '''#!/usr/bin/env bash
+                set +e
+                rm -rf "$BUILD_ROOT/aar-inspect"
+            '''
+        }
+    }
+}
