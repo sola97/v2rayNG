@@ -31,11 +31,15 @@ import java.lang.ref.SoftReference
 class CoreRootService : Service(), ServiceControl {
 
     private var setupJob: Job? = null
+    private val networkMonitor by lazy {
+        DefaultNetworkMonitor(this, "StartCore-Root")
+    }
 
     override fun onCreate() {
         super.onCreate()
         LogUtil.i(AppConfig.TAG, "StartCore-Root: Service created")
         CoreServiceManager.serviceControl = SoftReference(this)
+        networkMonitor.start()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -61,6 +65,7 @@ class CoreRootService : Service(), ServiceControl {
 
     override fun onDestroy() {
         super.onDestroy()
+        networkMonitor.stop()
         // Wait for any in-flight async setup to finish before tearing down. The rules are
         // installed off the main thread and can take seconds (the setup script waits for the
         // tun to appear); if a stop arrives during that window, teardown would run first and

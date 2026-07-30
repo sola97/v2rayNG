@@ -13,6 +13,10 @@ import com.v2ray.ang.util.MyContextWrapper
 import java.lang.ref.SoftReference
 
 class CoreProxyOnlyService : Service(), ServiceControl {
+    private val networkMonitor by lazy {
+        DefaultNetworkMonitor(this, "StartCore-Proxy")
+    }
+
     /**
      * Initializes the service.
      */
@@ -20,6 +24,7 @@ class CoreProxyOnlyService : Service(), ServiceControl {
         super.onCreate()
         LogUtil.i(AppConfig.TAG, "StartCore-Proxy: Service created")
         CoreServiceManager.serviceControl = SoftReference(this)
+        networkMonitor.start()
     }
 
     /**
@@ -40,6 +45,7 @@ class CoreProxyOnlyService : Service(), ServiceControl {
      */
     override fun onDestroy() {
         super.onDestroy()
+        networkMonitor.stop()
         CoreServiceManager.stopCoreLoop()
     }
 

@@ -117,6 +117,15 @@ object CoreServiceManager {
      */
     fun isRunning() = coreController.isRunning
 
+    fun notifyNetworkChanged() {
+        if (!coreController.isRunning) return
+        try {
+            coreController.notifyNetworkChanged()
+        } catch (e: Exception) {
+            LogUtil.e(AppConfig.TAG, "StartCore-Manager: Failed to notify core about network change", e)
+        }
+    }
+
     /**
      * Gets the name of the currently running server.
      * @return The name of the running server.

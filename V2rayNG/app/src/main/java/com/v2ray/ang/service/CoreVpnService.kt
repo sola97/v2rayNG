@@ -62,6 +62,7 @@ class CoreVpnService : VpnService(), ServiceControl {
         object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 setUnderlyingNetworks(arrayOf(network))
+                CoreServiceManager.notifyNetworkChanged()
             }
 
             override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
@@ -71,6 +72,7 @@ class CoreVpnService : VpnService(), ServiceControl {
 
             override fun onLost(network: Network) {
                 setUnderlyingNetworks(null)
+                CoreServiceManager.notifyNetworkChanged()
             }
         }
     }
