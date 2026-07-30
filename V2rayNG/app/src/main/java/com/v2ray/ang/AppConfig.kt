@@ -207,6 +207,8 @@ object AppConfig {
     const val HYSTERIA = "hysteria://"
     const val HYSTERIA2 = "hysteria2://"
     const val HY2 = "hy2://"
+    const val NAIVE_HTTPS = "naive+https://"
+    const val NAIVE_QUIC = "naive+quic://"
     const val V2RAYNFMTS = "v2rayn://"
 
     /** Give a good name to this, IDK*/

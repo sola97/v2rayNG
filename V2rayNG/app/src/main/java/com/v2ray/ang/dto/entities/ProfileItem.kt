@@ -65,6 +65,18 @@ data class ProfileItem(
     var bandwidthDown: String? = null,
     var bandwidthUp: String? = null,
 
+    var naiveTransport: String? = null,
+    var naiveInsecureConcurrency: Int? = null,
+    var naiveExtraHeaders: Map<String, String>? = null,
+    var naiveUdpOverTcp: Boolean? = null,
+    var naiveUdpOverTcpVersion: Int? = null,
+    var naiveQuicCongestionControl: String? = null,
+    var naiveTrustedRootCertificates: String? = null,
+    var naiveEchEnabled: Boolean? = null,
+    var naiveEchConfig: String? = null,
+    var naiveEchQueryServerName: String? = null,
+    var naiveEchDnsServer: String? = null,
+
     var policyGroupType: String? = null,
     var policyGroupSubscriptionId: String? = null,
     var policyGroupFilter: String? = null,
@@ -76,8 +88,18 @@ data class ProfileItem(
 ) {
 
     companion object {
-        fun create(configType: EConfigType): ProfileItem =
-            ProfileItem(configType = configType)
+        fun create(configType: EConfigType): ProfileItem {
+            val profile = ProfileItem(configType = configType)
+            if (configType == EConfigType.NAIVE) {
+                profile.naiveTransport = "https"
+                profile.naiveInsecureConcurrency = 1
+                profile.naiveExtraHeaders = emptyMap()
+                profile.naiveUdpOverTcp = true
+                profile.naiveUdpOverTcpVersion = 2
+                profile.naiveEchEnabled = false
+            }
+            return profile
+        }
     }
 
     fun getServerAddressAndPort(): String {

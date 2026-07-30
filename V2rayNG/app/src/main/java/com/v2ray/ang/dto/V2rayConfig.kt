@@ -81,6 +81,14 @@ data class V2rayConfig(
             var user: String? = null,
             var pass: String? = null,
             var headers: Map<String, String>? = null,
+            /*Naive*/
+            var username: String? = null,
+            var insecureConcurrency: Int? = null,
+            var extraHeaders: Map<String, String>? = null,
+            var udpOverTcp: NaiveUdpOverTcpBean? = null,
+            var quic: Boolean? = null,
+            var quicCongestionControl: String? = null,
+            var tls: NaiveTlsBean? = null,
             /*VMess/VLESS*/
             var id: String? = null,
             var security: String? = null,
@@ -104,6 +112,24 @@ data class V2rayConfig(
                 var publicKey: String = "",
                 var preSharedKey: String? = null,
                 var endpoint: String = ""
+            )
+
+            data class NaiveUdpOverTcpBean(
+                var enabled: Boolean,
+                var version: Int
+            )
+
+            data class NaiveTlsBean(
+                var serverName: String? = null,
+                var certificate: List<String>? = null,
+                var ech: NaiveEchBean? = null
+            )
+
+            data class NaiveEchBean(
+                var enabled: Boolean,
+                var config: List<String>? = null,
+                var queryServerName: String? = null,
+                var dnsServer: String? = null
             )
         }
 

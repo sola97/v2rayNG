@@ -15,6 +15,7 @@ import com.v2ray.ang.enums.EConfigType
 import com.v2ray.ang.extension.isNotNullEmpty
 import com.v2ray.ang.fmt.CustomFmt
 import com.v2ray.ang.fmt.Hysteria2Fmt
+import com.v2ray.ang.fmt.NaiveFmt
 import com.v2ray.ang.fmt.ShadowsocksFmt
 import com.v2ray.ang.fmt.SocksFmt
 import com.v2ray.ang.fmt.TrojanFmt
@@ -44,6 +45,8 @@ object AngConfigManager {
             EConfigType.WIREGUARD.protocolScheme to WireguardFmt::parse,
             EConfigType.HYSTERIA2.protocolScheme to Hysteria2Fmt::parse,
             AppConfig.HY2 to Hysteria2Fmt::parse,
+            AppConfig.NAIVE_HTTPS to NaiveFmt::parse,
+            AppConfig.NAIVE_QUIC to NaiveFmt::parse,
             AppConfig.V2RAYNFMTS to V2rayNFmt::parse
         )
     }
@@ -151,6 +154,10 @@ object AngConfigManager {
     private fun shareConfig(guid: String): String {
         try {
             val config = MmkvManager.decodeServerConfig(guid) ?: return ""
+
+            if (config.configType == EConfigType.NAIVE) {
+                return NaiveFmt.toUri(config)
+            }
 
             return config.configType.protocolScheme + when (config.configType) {
                 EConfigType.VMESS -> VmessFmt.toUri(config)

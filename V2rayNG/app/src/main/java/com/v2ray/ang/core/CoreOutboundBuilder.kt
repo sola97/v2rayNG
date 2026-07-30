@@ -9,6 +9,7 @@ import com.v2ray.ang.enums.EConfigType
 import com.v2ray.ang.enums.NetworkType
 import com.v2ray.ang.extension.isNotNullEmpty
 import com.v2ray.ang.extension.nullIfBlank
+import com.v2ray.ang.fmt.NaiveConfigValidator
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.util.HttpUtil
 import com.v2ray.ang.util.JsonUtil
@@ -32,6 +33,7 @@ object CoreOutboundBuilder {
             EConfigType.WIREGUARD -> toOutboundWireguard(profileItem)
             EConfigType.HYSTERIA2 -> toOutboundHysteria2(profileItem)
             EConfigType.HTTP -> toOutboundHttp(profileItem)
+            EConfigType.NAIVE -> toOutboundNaive(profileItem)
             else -> null
         }
 
@@ -53,6 +55,7 @@ object CoreOutboundBuilder {
                 || protocol.equals(EConfigType.WIREGUARD.name, true)
                 || protocol.equals(EConfigType.HYSTERIA2.name, true)
                 || protocol.equals(EConfigType.HYSTERIA.name, true)
+                || protocol.equals(EConfigType.NAIVE.name, true)
             ) {
                 muxEnabled = false
             } else if (outbound.streamSettings?.network == NetworkType.XHTTP.type) {
@@ -106,6 +109,11 @@ object CoreOutboundBuilder {
                 protocol = EConfigType.HYSTERIA.name.lowercase(),
                 settings = OutboundBean.OutSettingsBean(),
                 streamSettings = OutboundBean.StreamSettingsBean()
+            )
+
+            EConfigType.NAIVE -> OutboundBean(
+                protocol = EConfigType.NAIVE.name.lowercase(),
+                settings = OutboundBean.OutSettingsBean()
             )
 
             else -> null
@@ -293,6 +301,45 @@ object CoreOutboundBuilder {
             populateTlsSettings(it, profileItem, sni)
         }
 
+        return outboundBean
+    }
+
+    internal fun toOutboundNaive(profileItem: ProfileItem): OutboundBean? {
+        val outboundBean = createInitOutbound(EConfigType.NAIVE) ?: return null
+        outboundBean.settings?.let { settings ->
+            settings.address = HttpUtil.toIdnDomain(profileItem.server.orEmpty())
+            settings.port = profileItem.serverPort.orEmpty().toInt()
+            settings.username = profileItem.username.orEmpty()
+            settings.password = profileItem.password.orEmpty()
+            settings.insecureConcurrency = profileItem.naiveInsecureConcurrency ?: 1
+            settings.extraHeaders = profileItem.naiveExtraHeaders?.takeIf { it.isNotEmpty() }
+            settings.udpOverTcp = OutboundBean.OutSettingsBean.NaiveUdpOverTcpBean(
+                enabled = profileItem.naiveUdpOverTcp != false,
+                version = profileItem.naiveUdpOverTcpVersion ?: 2
+            )
+            settings.quic = profileItem.naiveTransport.equals("quic", ignoreCase = true)
+            settings.quicCongestionControl = NaiveConfigValidator
+                .normalizeQuicCongestionControl(profileItem.naiveQuicCongestionControl)
+                ?.nullIfBlank()
+            settings.tls = OutboundBean.OutSettingsBean.NaiveTlsBean(
+                serverName = profileItem.sni?.nullIfBlank() ?: profileItem.server,
+                certificate = profileItem.naiveTrustedRootCertificates
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let(::listOf),
+                ech = if (profileItem.naiveEchEnabled == true) {
+                    OutboundBean.OutSettingsBean.NaiveEchBean(
+                        enabled = true,
+                        config = profileItem.naiveEchConfig?.takeIf { it.isNotBlank() }?.let(::listOf),
+                        queryServerName = profileItem.naiveEchQueryServerName?.nullIfBlank(),
+                        dnsServer = profileItem.naiveEchDnsServer?.nullIfBlank()
+                    )
+                } else {
+                    null
+                }
+            )
+        }
+        outboundBean.mux?.enabled = false
+        outboundBean.mux?.concurrency = -1
         return outboundBean
     }
 
