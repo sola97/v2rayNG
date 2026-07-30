@@ -50,14 +50,31 @@ RUN mkdir -p "${ANDROID_HOME}/cmdline-tools" \
 
 RUN yes | sdkmanager --licenses >/dev/null
 
-RUN sdkmanager \
-        "platform-tools" \
-        "platforms;android-${ANDROID_PLATFORM_PACKAGE}" \
-        "build-tools;${ANDROID_BUILD_TOOLS}" \
+RUN installed=false \
+    && for attempt in 1 2 3 4; do \
+        if sdkmanager \
+            "platform-tools" \
+            "platforms;android-${ANDROID_PLATFORM_PACKAGE}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}"; then \
+            installed=true; \
+            break; \
+        fi; \
+        echo "Android SDK package installation attempt ${attempt} failed" >&2; \
+        sleep $((attempt * 5)); \
+    done \
+    && test "${installed}" = true \
     && sdkmanager --list_installed
 
-RUN sdkmanager \
-        "ndk;${ANDROID_NDK_VERSION}" \
+RUN installed=false \
+    && for attempt in 1 2 3 4; do \
+        if sdkmanager "ndk;${ANDROID_NDK_VERSION}"; then \
+            installed=true; \
+            break; \
+        fi; \
+        echo "Android NDK installation attempt ${attempt} failed" >&2; \
+        sleep $((attempt * 5)); \
+    done \
+    && test "${installed}" = true \
     && sdkmanager --list_installed
 
 RUN --mount=type=cache,id=v2rayng-naive-go-mod,target=/go/pkg/mod \
