@@ -160,7 +160,11 @@ pipeline {
                       --tag "$artifact_image" \
                       "$BUILD_ROOT"
                     docker create --name "$artifact_container" "$artifact_image" /bin/true >/dev/null
-                    docker cp "${artifact_container}:/." "$ARTIFACT_ROOT"
+                    docker cp "${artifact_container}:/libv2ray.aar" "$ARTIFACT_ROOT/libv2ray.aar"
+                    docker cp "${artifact_container}:/libv2ray-sources.jar" "$ARTIFACT_ROOT/libv2ray-sources.jar"
+                    docker cp "${artifact_container}:/apk" "$ARTIFACT_ROOT/apk"
+                    docker cp "${artifact_container}:/test-results" "$ARTIFACT_ROOT/test-results"
+                    docker cp "${artifact_container}:/test-reports" "$ARTIFACT_ROOT/test-reports"
                     docker rm "$artifact_container" >/dev/null
                     docker image rm "$artifact_image" >/dev/null
                 '''
