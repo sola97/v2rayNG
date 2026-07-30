@@ -1,8 +1,11 @@
 # v2rayNG 原生 NaiveProxy 设计
 
 日期：2026-07-30
-状态：待实施
+状态：已实现；Jenkins Android 构建与独立 sing-box TCP/UoT v2 互通已通过，Android 真机验证待设备
 目标分支：`feature/native-naiveproxy`
+
+实施提交、产物、手机配置说明和已验证/未验证边界见
+[原生 NaiveProxy 实施与验证记录](../../native-naiveproxy-implementation.md)。
 
 ## 1. 背景与目标
 
@@ -17,7 +20,7 @@ v2rayNG 当前不能把 NaiveProxy 作为原生节点使用，已有方案通常
 - 支持 UDP over TCP（UoT）v1/v2，默认开启 v2。
 - UDP 不允许静默直连或无提示降级。
 - 使用独立 Jenkins Job 和 Docker 构建环境生成 AAR、APK、测试报告与联调证据。
-- 在 NUC 上以隔离容器运行 sing-box Naive 入站，完成 TCP、QUIC、ECH 和 UoT v2 的端到端验证。
+- 使用固定提交的 sing-box Naive 入站做隔离互通验证；当前已完成 HTTP/2 TCP 与默认 UoT v2 UDP，QUIC/ECH 活体互通仍列为后续验证项。
 
 ## 2. 已确认的关键决策
 
@@ -25,7 +28,7 @@ v2rayNG 当前不能把 NaiveProxy 作为原生节点使用，已有方案通常
 2. 不依赖 `naiveplugin`，不内嵌第二套 sing-box 客户端核心，不使用本地 SOCKS 旁路。
 3. UoT 默认开启，默认版本固定为 v2；v1 仅用于旧服务端兼容。
 4. 手机端提供完整配置页，不把高级参数写死在核心或 Jenkins 中。
-5. NUC 上新增独立 sing-box Naive 测试容器，不修改现有 Caddy、UAMS、Old DC Job 或容器。
+5. sing-box 只作为隔离测试服务端，不进入 APK，也不修改现有 Caddy、UAMS、Old DC Job 或容器。考虑 NUC 磁盘余量，当前 E2E 使用临时进程和临时证书，未部署常驻 Compose 服务。
 6. Jenkins 不从 Chromium 源码构建 Cronet，而是使用 `cronet-go/lib/android_*` 发布的四个 Android 平台 Go 模块及其中的预构建静态库。
 7. 不提供底层不支持的“跳过证书验证”选项。
 
@@ -400,16 +403,18 @@ AndroidLibXrayLite fork 通过 `go.mod replace` 或固定 pseudo-version 指向 
 
 ### 13.3 Pipeline 阶段
 
-1. `Checkout`：检出三个固定 ref，记录 commit。
-2. `Dependency preflight`：检查磁盘空间、Go/NDK/Java 版本及 Cronet 模块可用性。
-3. `Xray tests`：运行 Naive、infra/conf、singbridge 和受依赖升级影响的测试。
-4. `Build AAR`：gomobile 构建四 ABI AAR。
-5. `AAR verify`：解包检查 ABI、库、大小和依赖。
-6. `v2rayNG unit tests`：运行 NaiveFmt、默认值、UI state、配置生成测试。
-7. `Build APK`：至少构建 `assembleFdroidDebug`，可选 `assemblePlaystoreDebug`。
-8. `APK verify`：检查 ABI、AAR 嵌入、包名、版本和签名状态。
-9. `E2E`：调用隔离 sing-box 服务完成 TCP/UDP/QUIC/ECH 测试。
-10. `Archive`：归档 AAR、APK、JUnit、commit manifest、大小报告和联调日志。
+当前已落地的阶段为：
+
+1. `Validate parameters`：只接受受限 Git ref。
+2. `Resource preflight`：工作区文件系统少于 8 GiB 时失败。
+3. `Checkout fixed forks`：从三个固定公开 fork 检出 ref，并记录实际 commit。
+4. `Dependency consistency`：确认 AndroidLib 固定到所选 Xray 提交，且只链接四个 Android Cronet 平台模块。
+5. `Linux tests, Android AAR and app`：在固定 Docker 工具链内运行 Xray Naive、配置、singbridge、Shadowsocks 2022 测试，构建四 ABI AAR，运行 v2rayNG F-Droid 单测并构建 APK。
+6. `Verify AAR`：检查四 ABI `libgojni.so`、AAR 完整性、SHA-256 与 `notifyNetworkChanged()` 绑定。
+7. `Verify Android tests and APK`：发布 JUnit，检查所有 APK ZIP 完整性、SHA-256、大小以及 Universal APK 的四 ABI。
+8. `Archive`：只归档 AAR、APK、源码包、JUnit/HTML 报告、提交清单、API 和大小/哈希证据。
+
+`RUN_E2E` 与 `RUN_ANDROID_SMOKE` 在 Jenkins 中仍然 fail closed：启用时会明确失败，不会伪装成已执行。当前 sing-box E2E 由 `ci/e2e/invoke-naive-e2e.ps1` 独立运行，真机门禁等待授权 ADB 设备后再接入。
 
 ### 13.4 缓存与资源控制
 
@@ -421,25 +426,25 @@ NUC 当前磁盘和内存余量有限，Pipeline 必须：
 - 仅清理本 Job 已过期的 workspace 和明确标记的临时容器。
 - 禁止执行无范围的 `docker system prune`。
 
-## 14. NUC sing-box 测试服务端
+## 14. 隔离 sing-box 互通测试
 
-使用独立 Compose 项目，例如 `v2rayng-naive-ci`：
+当前实现位于 `ci/e2e/`，固定以下源码并生成可追溯清单：
 
-- 固定 sing-box 版本或镜像摘要。
-- 使用独立 TCP/UDP 端口，不占用现有 Caddy 端口。
-- 独立 Docker network、配置目录、证书和日志。
-- 用户名、密码放 Jenkins Credentials，不提交到 Git。
-- 生成专用测试 CA 和服务端证书，用于验证自定义 CA。
-- 生成 ECH key/config，客户端使用显式 ECH Config 做端到端验证。
-- Naive 入站启用 TCP 与 QUIC，并使用 sing-box 内置 UoT Router。
+- Xray：`3ac438417f44ad853477a3f317f27ae18620f6b0`
+- sing-box：`4f7f89463ccfa506f90c46c715cf9798159d2c44`
+- Windows Cronet 平台模块：`v0.0.0-20260712142643-1e5048bd5587`
 
-测试目标包含：
+Runner 会构建 Xray、sing-box 和测试程序，生成临时 CA/服务端证书，在随机回环端口启动：
 
-- TCP echo/HTTP 服务
-- UDP echo 服务
-- DNS UDP 查询服务
+- sing-box `type: "naive"` HTTPS 入站；
+- TCP echo 服务；
+- UDP echo 服务；
+- 两个 Xray `dokodemo-door` 入站；
+- Xray 原生 `protocol: "naive"` 出站。
 
-另保留一个标准 Caddy/forwardproxy 兼容性负例：TCP 成功、UoT UDP 明确失败，用来防止客户端错误地把 UDP 直接放行。
+UDP 配置只写 `udpOverTcp.enabled=true`，故意不写 `version`，同时通过 Xray 配置单测确认核心默认值为 v2。真实互通结果为 TCP 成功、UDP echo 成功。整个过程不启动 `naiveplugin`、本地 SOCKS 桥接或第二套客户端核心；sing-box 只承担服务端角色。
+
+以下项目尚未冒充为已完成：HTTP/3/QUIC 活体互通、ECH 正反例、UoT v1 活体兼容、DNS UDP 活体查询和 Caddy 无直连负例。对应核心配置与校验代码已进入单元/编译验证，但仍需独立集成环境补测。
 
 ## 15. 测试策略与验收
 
@@ -470,21 +475,26 @@ NUC 当前磁盘和内存余量有限，Pipeline 必须：
 - QUIC 并发固定 1。
 - Extra Headers UI state 保存和恢复。
 
-### 15.3 Jenkins 端到端测试
+### 15.3 端到端验证状态
 
-- HTTP/2 Naive TCP 请求成功。
-- HTTP/3 Naive TCP 请求成功。
-- UoT v2 UDP echo 成功。
-- UoT v2 DNS 查询成功。
-- UoT v1 兼容测试成功。
-- 自定义 CA 成功，错误 CA 明确失败。
-- 显式 ECH Config 成功，错误 Config 明确失败。
-- Extra Headers 通过需要指定 Header 才允许 CONNECT 的测试前置代理验证，且保留大小写不敏感语义。
-- Caddy 负例中 TCP 成功、UDP 失败且无直连流量。
+已验证：
+
+- HTTP/2 Naive TCP echo 成功。
+- 未显式配置 UoT 版本时，默认 v2 的 UDP echo 成功。
+- 自签测试 CA 由 Xray 作为自定义 CA 加载并完成 TLS 连接。
+- 测试服务端为固定提交的 sing-box Naive 入站。
+
+待补验证：
+
+- HTTP/3 Naive TCP。
+- UoT v2 DNS 查询和 UoT v1 兼容。
+- ECH 正反例。
+- Extra Headers 前置代理活体验证。
+- Caddy TCP 成功、UDP 明确失败且无直连的负例。
 
 ### 15.4 Android 运行验证
 
-没有授权的物理 Android 设备或稳定模拟器时，Jenkins 只能确认 AAR/APK、Go 集成和 Linux 端到端路径，不能声称已完成 Android 真机运行验证。
+没有授权的物理 Android 设备或稳定模拟器时，Jenkins 只能确认 AAR/APK、Go 集成和 JVM 单元测试；独立 runner 可以确认桌面平台上的 Xray/sing-box TCP 与 UoT 互通，但二者都不能替代 Android 真机运行验证。
 
 获得 ADB 设备后至少验证：
 
@@ -538,7 +548,9 @@ NUC 当前磁盘和内存余量有限，Pipeline 必须：
 
 ## 19. 完成标准
 
-只有同时满足以下条件，原生 Naive 功能才算完成：
+实现交付已经满足“不使用插件、原生核心、手机可配置、默认 UoT v2、真实 sing-box UDP、Jenkins 可复现 AAR/APK”这些主路径。以下清单保留为发布级完成标准；其中 HTTP/3/ECH 活体、Caddy 负例和 Android 真机项仍待补齐，详见实施记录。
+
+只有同时满足以下条件，原生 Naive 功能才达到发布级完成：
 
 - APK 内不需要安装或调用 `naiveplugin`。
 - Xray 能直接加载并运行 `protocol: "naive"`。

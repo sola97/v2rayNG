@@ -38,9 +38,9 @@ Use `-UpdateJob` only when the checked-in Pipeline-from-SCM job definition chang
 ## Resource policy
 
 - Builds are serialized and limited to one Go package worker, one Go runtime thread, and one Gradle worker.
-- A build fails when the workspace filesystem has less than 12 GiB free.
+- A build fails when the workspace filesystem has less than 8 GiB free. Gradle additionally checks for at least 4 GiB immediately before each attempt.
 - BuildKit Go module and build caches use names scoped to this pipeline; the workspace-local Buildx plugin does not modify the Jenkins container image.
 - The Gradle user home is a locked BuildKit cache scoped to this pipeline; the Kotlin compiler runs in-process with a 1.5 GiB JVM heap.
 - The Docker build removes only non-Android Cronet platform modules from this pipeline's named Go module cache; it keeps the four Android libraries and never prunes Docker globally.
 - The pipeline does not run `docker system prune` or remove unrelated images, volumes, containers, jobs, or workspaces.
-- E2E and Android smoke switches fail closed until their isolated service/device stages are checked in.
+- Jenkins E2E and Android smoke switches fail closed until their service/device stages are checked in. The independent Windows sing-box interoperability runner is documented under `ci/e2e/`; it does not make the Jenkins switch report a test that Jenkins did not run.
