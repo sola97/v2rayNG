@@ -157,13 +157,7 @@ RUN --mount=type=cache,id=v2rayng-naive-gradle-user-home,target=/root/.gradle,sh
     && tasks='testFdroidDebugUnitTest' \
     && if test "${BUILD_FDROID}" = 'true'; then tasks="${tasks} assembleFdroidDebug"; fi \
     && if test "${BUILD_PLAYSTORE}" = 'true'; then tasks="${tasks} assemblePlaystoreDebug"; fi \
-    && ./gradlew \
-        --no-daemon \
-        --stacktrace \
-        --max-workers=1 \
-        -Dorg.gradle.jvmargs='-Xmx1536m -Dfile.encoding=UTF-8' \
-        -Pkotlin.compiler.execution.strategy=in-process \
-        ${tasks} \
+    && bash ../ci/jenkins/run-gradle-android.sh ${tasks} \
     && find app/build/test-results/testFdroidDebugUnitTest -type f -name '*.xml' \
         -exec cp -v {} /out/test-results/ \; \
     && cp -R app/build/reports/tests/testFdroidDebugUnitTest/. /out/test-reports/ \
