@@ -12,6 +12,13 @@ readonly log_file=".gradle-ci-attempt.log"
 readonly transient_network_pattern='SSL peer shut down incorrectly|Remote host terminated the handshake|Connection reset|Read timed out|Connection timed out|Network is unreachable|Temporary failure in name resolution|UnknownHostException|ConnectException|status code (502|503|504)'
 
 for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+    available_kb="$(df -Pk . | awk 'NR == 2 {print $4}')"
+    minimum_kb=$((4 * 1024 * 1024))
+    if ((available_kb < minimum_kb)); then
+        echo "Gradle requires at least 4 GiB free; available: $((available_kb / 1024 / 1024)) GiB" >&2
+        exit 20
+    fi
+
     set +e
     ./gradlew \
         --no-daemon \
