@@ -30,8 +30,9 @@ pipeline {
     environment {
         BUILD_ROOT = '.ci-work'
         ARTIFACT_ROOT = 'artifacts'
-        DOCKER_BUILDKIT = '1'
         BUILDKIT_PROGRESS = 'plain'
+        BUILDX_VERSION = 'v0.17.1'
+        BUILDX_LINUX_AMD64_SHA256 = 'aa7a9778349e1a8ace685e4c51a1d33e7a9b0aa6925d1c625b09cb3800eba696'
     }
 
     stages {
@@ -47,6 +48,7 @@ pipeline {
 
         stage('Resource preflight') {
             steps {
+                deleteDir()
                 sh '''#!/usr/bin/env bash
                     set -euo pipefail
                     available_kb="$(df -Pk "$WORKSPACE" | awk 'NR==2 {print $4}')"
@@ -65,10 +67,17 @@ pipeline {
 
         stage('Checkout fixed forks') {
             steps {
-                deleteDir()
                 sh '''#!/usr/bin/env bash
                     set -euo pipefail
                     mkdir -p "$BUILD_ROOT" "$ARTIFACT_ROOT"
+
+                    mkdir -p "$WORKSPACE/.docker/cli-plugins"
+                    curl --fail --location --retry 4 \
+                      "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-amd64" \
+                      --output "$WORKSPACE/.docker/cli-plugins/docker-buildx"
+                    echo "${BUILDX_LINUX_AMD64_SHA256}  $WORKSPACE/.docker/cli-plugins/docker-buildx" | sha256sum --check --strict
+                    chmod 0755 "$WORKSPACE/.docker/cli-plugins/docker-buildx"
+                    docker --config "$WORKSPACE/.docker" buildx version
 
                     git clone --filter=blob:none --no-checkout https://github.com/sola97/v2rayNG.git "$BUILD_ROOT/v2rayng"
                     git -C "$BUILD_ROOT/v2rayng" fetch --depth=1 origin "$V2RAYNG_REF"
@@ -120,7 +129,7 @@ pipeline {
                     set -euo pipefail
                     rm -rf "$ARTIFACT_ROOT/aar-output"
                     mkdir -p "$ARTIFACT_ROOT/aar-output"
-                    docker build \
+                    docker --config "$WORKSPACE/.docker" buildx build \
                       --file "$BUILD_ROOT/Dockerfile.android" \
                       --target artifact \
                       --output "type=local,dest=$ARTIFACT_ROOT/aar-output" \
