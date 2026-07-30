@@ -6,7 +6,7 @@ ARG GO_VERSION=1.26.0
 ARG GO_SHA256=aac1b08a0fb0c4e0a7c1555beb7b59180b05dfc5a3d62e40e9de90cd42f88235
 ARG ANDROID_COMMAND_LINE_TOOLS_VERSION=14742923
 ARG ANDROID_COMMAND_LINE_TOOLS_SHA1=48833c34b761c10cb20bcd16582129395d121b27
-ARG ANDROID_PLATFORM=37
+ARG ANDROID_PLATFORM_PACKAGE=37.0
 ARG ANDROID_BUILD_TOOLS=37.0.0
 ARG ANDROID_NDK_VERSION=29.0.14206865
 ARG GOMOBILE_VERSION=v0.0.0-20260709172247-6129f5bee9d5
@@ -46,11 +46,17 @@ RUN mkdir -p "${ANDROID_HOME}/cmdline-tools" \
     && unzip -q /tmp/android-command-line-tools.zip -d /tmp/android-command-line-tools \
     && mv /tmp/android-command-line-tools/cmdline-tools "${ANDROID_HOME}/cmdline-tools/latest" \
     && rm -rf /tmp/android-command-line-tools /tmp/android-command-line-tools.zip \
-    && yes | sdkmanager --licenses >/dev/null \
-    && sdkmanager \
+    && sdkmanager --version
+
+RUN yes | sdkmanager --licenses >/dev/null
+
+RUN sdkmanager \
         "platform-tools" \
-        "platforms;android-${ANDROID_PLATFORM}" \
+        "platforms;android-${ANDROID_PLATFORM_PACKAGE}" \
         "build-tools;${ANDROID_BUILD_TOOLS}" \
+    && sdkmanager --list_installed
+
+RUN sdkmanager \
         "ndk;${ANDROID_NDK_VERSION}" \
     && sdkmanager --list_installed
 

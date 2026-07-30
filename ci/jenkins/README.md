@@ -4,7 +4,7 @@ This directory owns the isolated Jenkins/Docker build for the native NaiveProxy 
 
 ## Reproducible toolchain
 
-`Dockerfile.android` pins the Linux/amd64 JDK base image digest, Go archive checksum, Android command-line tools checksum, Android SDK/NDK versions, and gomobile commit. The pipeline also downloads a pinned Docker Buildx release into its own workspace and verifies its checksum, because the NUC Docker client does not ship the plugin. The Docker build:
+`Dockerfile.android` pins the Linux/amd64 JDK base image digest, Go archive checksum, Android command-line tools checksum, Android platform package 37.0, build-tools 37.0.0, NDK 29.0.14206865, and gomobile commit. The pipeline also downloads a pinned Docker Buildx release into its own workspace and verifies its checksum, because the NUC Docker client does not ship the plugin. The Docker build:
 
 1. runs the focused Xray Naive, config, singbridge, and Shadowsocks 2022 tests;
 2. builds `libv2ray.aar` from the approved AndroidLibXrayLite fork;
