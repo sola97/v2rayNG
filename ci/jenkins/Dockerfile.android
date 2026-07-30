@@ -91,6 +91,28 @@ RUN --mount=type=cache,id=v2rayng-naive-go-mod,target=/go/pkg/mod \
     && go test -tags with_purego ./infra/conf -run '^TestNaive' \
     && go test -tags with_purego ./common/singbridge ./proxy/shadowsocks_2022
 
+RUN --mount=type=cache,id=v2rayng-naive-go-mod,target=/go/pkg/mod \
+    set -eu \
+    && for module_root in \
+        /go/pkg/mod/github.com/sagernet/cronet-go/lib \
+        /go/pkg/mod/cache/download/github.com/sagernet/cronet-go/lib; do \
+        if test -d "${module_root}"; then \
+            find "${module_root}" \
+                -mindepth 1 \
+                -maxdepth 1 \
+                -type d \
+                ! -name 'android_*' \
+                -exec rm -rf -- {} +; \
+        fi; \
+    done \
+    && find /go/pkg/mod/github.com/sagernet/cronet-go \
+        -mindepth 1 \
+        -maxdepth 1 \
+        -type d \
+        -name 'all@*' \
+        -exec rm -rf -- {} + \
+    && rm -rf -- /go/pkg/mod/cache/download/github.com/sagernet/cronet-go/all
+
 WORKDIR /src/androidlib
 COPY androidlib/ ./
 
