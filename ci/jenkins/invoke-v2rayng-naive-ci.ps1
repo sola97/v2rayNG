@@ -259,8 +259,14 @@ else {
         if ([DateTimeOffset]::UtcNow -gt $deadline) { throw 'Timed out waiting for Jenkins to start the build' }
         Start-Sleep -Seconds $PollSeconds
         $queueItem = Invoke-RestMethod -Uri ($queueUrl.AbsoluteUri.TrimEnd('/') + '/api/json') -Headers $headers
-        if ($queueItem.cancelled) { throw 'Jenkins cancelled the queued build' }
-        if ($queueItem.executable.number) { $buildNumber = [int]$queueItem.executable.number }
+        if ($queueItem.PSObject.Properties['cancelled'] -and $queueItem.cancelled) {
+            throw 'Jenkins cancelled the queued build'
+        }
+        if ($queueItem.PSObject.Properties['executable']
+            -and $null -ne $queueItem.executable
+            -and $queueItem.executable.PSObject.Properties['number']) {
+            $buildNumber = [int]$queueItem.executable.number
+        }
     }
 }
 
