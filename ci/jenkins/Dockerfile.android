@@ -145,6 +145,15 @@ RUN --mount=type=cache,id=v2rayng-naive-go-mod,target=/go/pkg/mod \
 WORKDIR /src/v2rayng
 COPY v2rayng/ ./
 
+RUN set -eu \
+    && bash compile-hevtun.sh \
+    && for abi in armeabi-v7a arm64-v8a x86 x86_64; do \
+        test -s "libs/${abi}/libhev-socks5-tunnel.so"; \
+        test -s "libs/${abi}/libhevsockstun.so"; \
+    done \
+    && mkdir -p V2rayNG/app/libs \
+    && cp -R libs/. V2rayNG/app/libs/
+
 RUN mkdir -p V2rayNG/app/libs /out/apk /out/test-results /out/test-reports \
     && cp /out/libv2ray.aar V2rayNG/app/libs/libv2ray.aar
 

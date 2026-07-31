@@ -7,11 +7,12 @@ This directory owns the isolated Jenkins/Docker build for the native NaiveProxy 
 `Dockerfile.android` pins the Linux/amd64 JDK base image digest, Go archive checksum, Android command-line tools checksum, Android platform package 37.0, build-tools 37.0.0, NDK 29.0.14206865, and gomobile commit. The pipeline also downloads a pinned Docker Buildx release and verifies its checksum, because the NUC Docker client does not ship the plugin. A verified copy is retained in this Job's dedicated Jenkins-user cache and installed into each disposable workspace. The Docker build:
 
 1. runs the focused Xray Naive, config, singbridge, and Shadowsocks 2022 tests;
-2. builds `libv2ray.aar` from the approved AndroidLibXrayLite fork;
-3. places that exact AAR in v2rayNG and runs the F-Droid debug unit tests;
-4. builds the requested debug APK variants and exports the AAR, APKs, JUnit XML, and HTML test report.
+2. checks out the exact `hev-socks5-tunnel` gitlink from v2rayNG and builds its four Android ABIs with the pinned NDK;
+3. builds `libv2ray.aar` from the approved AndroidLibXrayLite fork;
+4. places the HEV libraries and that exact AAR in v2rayNG, then runs the F-Droid debug unit tests;
+5. builds the requested debug APK variants and exports the AAR, APKs, JUnit XML, and HTML test report.
 
-The Jenkins pipeline verifies all four AAR ABIs, the `CoreController.notifyNetworkChanged()` binding, every produced APK as a ZIP, and all four native ABIs in the universal APK before archiving checksums, API listings, source commits, JUnit results, and size reports.
+The Jenkins pipeline verifies all four AAR ABIs, the `CoreController.notifyNetworkChanged()` binding, every produced APK as a ZIP, and each APK ABI's `libgojni.so`, `libhev-socks5-tunnel.so`, and `libhevsockstun.so`. The universal APK must contain all three files for all four ABIs before the pipeline archives checksums, API listings, source commits, the HEV submodule commit, JUnit results, and size reports.
 
 ## Jenkins job
 
