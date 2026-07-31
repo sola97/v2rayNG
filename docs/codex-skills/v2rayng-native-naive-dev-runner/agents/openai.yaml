@@ -1,0 +1,4 @@
+interface:
+  display_name: "v2rayNG Native Naive Runner"
+  short_description: "Build and verify native Naive for v2rayNG"
+  default_prompt: "Use $v2rayng-native-naive-dev-runner to modify build test and package the native NaiveProxy integration."
