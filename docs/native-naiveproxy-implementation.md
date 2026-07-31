@@ -1,10 +1,10 @@
 # v2rayNG 原生 NaiveProxy 实施与验证记录
 
-日期：2026-07-30
+日期：2026-07-31
 
 分支：`feature/native-naiveproxy`
 
-结论：原生客户端主路径已经实现，不依赖 `naiveplugin`；Jenkins Android 构建、Xray 精准测试、v2rayNG 单元测试以及 sing-box TCP/UoT v2 真实互通均已通过。Android 真机、HTTP/3/QUIC 和 ECH 活体互通仍按本文件的未验证边界处理。
+结论：原生客户端主路径已经实现，不依赖 `naiveplugin`；Jenkins Android 构建、Xray 精准测试、v2rayNG 单元测试以及 sing-box TCP/UoT v2 真实互通均已通过。Jenkins #17 暴露的 HEV TUN 缺库问题已经在 #21 修复，五个 APK 均通过逐 ABI 原生库门禁。新 APK 尚未完成 Android 真机复测，HTTP/3/QUIC 和 ECH 活体互通仍按本文件的未验证边界处理。
 
 ## 1. 交付范围
 
@@ -37,7 +37,7 @@ Cronet Android 平台库在构建 AAR 时静态进入各 ABI 的 `libgojni.so`�
 |---|---|---|
 | [sola97/Xray-core](https://github.com/sola97/Xray-core/tree/feature/native-naiveproxy) | [`3ac438417f44`](https://github.com/sola97/Xray-core/commit/3ac438417f44ad853477a3f317f27ae18620f6b0) | 原生 `protocol: "naive"`、Cronet 生命周期、TCP、UoT v1/v2、HTTPS/QUIC、CA、ECH、Header、DNS 和保留 Header 校验 |
 | [sola97/AndroidLibXrayLite](https://github.com/sola97/AndroidLibXrayLite/tree/feature/native-naiveproxy) | [`95569b7be65c`](https://github.com/sola97/AndroidLibXrayLite/commit/95569b7be65c1b3bf706041994cb9ace9699cee8) | 固定上述 Xray 提交、只链接四个 Android Cronet 平台模块、导出 `notifyNetworkChanged()` |
-| [sola97/v2rayNG](https://github.com/sola97/v2rayNG/tree/feature/native-naiveproxy) | [`4bff24300938`](https://github.com/sola97/v2rayNG/commit/4bff2430093874914ec85a5ea505d665f80aad41) | 手机配置、导入导出、Xray JSON、网络切换回调、Jenkins/Docker 和可重复 sing-box E2E runner |
+| [sola97/v2rayNG](https://github.com/sola97/v2rayNG/tree/feature/native-naiveproxy) | [`2d834c5c254e`](https://github.com/sola97/v2rayNG/commit/2d834c5c254e46f5f41203218bdaa17f10753473) | 手机配置、导入导出、Xray JSON、网络切换回调、HEV TUN 完整打包、Jenkins/Docker 和可重复 sing-box E2E runner |
 
 Xray 的两个功能提交为：
 
@@ -60,6 +60,8 @@ v2rayNG 的主要功能提交为：
 - `d7ddbcb ci: build and verify native naive APK`
 - `ab9e42b fix: align Naive header validation with core`
 - `4bff243 test: add native Naive interoperability runner`
+- `2a035c0 fix: package HEV TUN native libraries`
+- `2d834c5 fix: pass pinned NDK to HEV build`
 
 其余同分支提交是为了修复真实 Jenkins 构建过程中暴露的 SDK/Gradle 网络重试、磁盘门槛、Compose 编译、APK 导出和归档边界问题。
 
@@ -172,9 +174,9 @@ Xray-core 负责：
 
 专用 Job：[`v2rayng-naive-android-ci`](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/)
 
-最终构建：[#17 SUCCESS](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/17/)
+最终构建：[#21 SUCCESS](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/21/)
 
-耗时：598431 ms，约 9 分 58 秒
+耗时：743445 ms，约 12 分 23 秒
 
 Job 只从批准的三个公开 fork 检出受限 ref，不接受任意仓库 URL 或任意脚本。它没有修改 `uams-nuc-ci`、Old DC Job、现有容器或现有服务。
 
@@ -189,19 +191,40 @@ Job 只从批准的三个公开 fork 检出受限 ref，不接受任意仓库 UR
 - gomobile `v0.0.0-20260709172247-6129f5bee9d5`
 - Gradle 单 worker、Kotlin in-process、JVM 1.5 GiB
 
-构建前要求至少 8 GiB 可用空间，Gradle 每次尝试前要求至少 4 GiB。Go module、Go build 和 Gradle 缓存都使用本 Job 的专用 BuildKit cache ID。#17 验证完成后，为使下次构建仍能越过 8 GiB 门槛，只按 `v2rayng-naive-go-mod`、`v2rayng-naive-go-build` 和 `v2rayng-naive-gradle-user-home` 三个明确 ID 清空了本 Job 缓存；NUC 可用空间恢复到 8.6 GiB，没有执行全局 `docker system prune`。
+构建前要求至少 8 GiB 可用空间，Gradle 每次尝试前要求至少 4 GiB。Go module、Go build 和 Gradle 缓存都使用本 Job 的专用 BuildKit cache ID。为使 #21 能越过空间门槛，只删除了本 Job 的旧工作区和两份已确认重复的 Gradle cache record；没有执行全局 `docker system prune`，也没有触碰其他 Job、镜像、容器或卷。
 
-### 6.1 #17 实际固定提交
+### 6.1 #17 缺陷与修复边界
+
+#17 虽然构建成功，但其所有 APK 都没有 `libhev-socks5-tunnel.so` 和
+`libhevsockstun.so`。默认启用 HEV TUN 的 VPN 模式会在
+`TProxyService` 初始化时抛出 `UnsatisfiedLinkError`，因此 #17 APK 已判定为无效，
+不能继续作为交付包使用。
+
+修复保持运行时默认值不变，恢复上游构建链：
+
+- 按 v2rayNG gitlink 递归检出 `hev-socks5-tunnel` 及其嵌套子模块。
+- 使用固定 NDK 29 执行 `compile-hevtun.sh`，构建四个 ABI 的 JNI 库和 Root 模式程序。
+- 在 Gradle 前把 HEV 产物复制到 `V2rayNG/app/libs`。
+- 对每个 APK 的实际 ABI 硬校验 `libgojni.so`、`libhev-socks5-tunnel.so` 和
+  `libhevsockstun.so`；缺任一文件就使流水线失败。
+
+#18 首次执行修复时发现 Docker 中变量名是 `ANDROID_NDK_HOME`，上游脚本读取
+`NDK_HOME`；提交 `2d834c5` 显式传入固定 NDK 路径。#19 和 #20 随后因 Google Maven
+TLS 握手中断失败；同一基础镜像内 Java 17 连续读取 Google Maven 10 次成功后，#21
+利用专用 Gradle 缓存完成了构建。
+
+### 6.2 #21 实际固定提交
 
 ```json
 {
   "xray": "3ac438417f44ad853477a3f317f27ae18620f6b0",
   "androidLib": "95569b7be65c1b3bf706041994cb9ace9699cee8",
-  "v2rayNG": "4bff2430093874914ec85a5ea505d665f80aad41"
+  "v2rayNG": "2d834c5c254e46f5f41203218bdaa17f10753473",
+  "hevTun": "ad7600497931205105b08367bd1b450048157e40"
 }
 ```
 
-### 6.2 #17 测试结果
+### 6.3 #21 测试结果
 
 Docker 构建中通过：
 
@@ -222,7 +245,7 @@ Jenkins 归档的 6 个 JUnit suite 合计 33 个测试，失败 0、错误 0、
 | `HttpUtilTest` | 1 |
 | `UtilsTest` | 3 |
 
-归档清单经过检查，只包含构建产物和验证证据，没有再次归档 `.dockerenv`、`/etc` 或其他容器根文件系统内容。
+归档清单经过检查，只包含构建产物和验证证据，没有再次归档 `.dockerenv`、`/etc` 或其他容器根文件系统内容。五个 F-Droid APK 都通过 ZIP 完整性检查和逐 ABI 三类原生文件门禁。
 
 ## 7. Android 产物
 
@@ -230,12 +253,12 @@ Jenkins 归档的 6 个 JUnit suite 合计 33 个测试，失败 0、错误 0、
 
 | 产物 | 大小 | SHA-256 |
 |---|---:|---|
-| [arm64-v8a APK](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/17/artifact/artifacts/apk/v2rayNG_2.2.6-fdroid_arm64-v8a.apk) | 43M | `3d95c9e3bf4985924823a6a5229b9d9a0a44696de6b6fc119437d3264c639146` |
-| [armeabi-v7a APK](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/17/artifact/artifacts/apk/v2rayNG_2.2.6-fdroid_armeabi-v7a.apk) | 43M | `0c368ef30cd505ae1a3c279ebd4f0009514f4a075bd9c5d6d845c0f1145652f8` |
-| [Universal APK](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/17/artifact/artifacts/apk/v2rayNG_2.2.6-fdroid_universal.apk) | 99M | `55675198bb3f395fcede50fdee4e7d3117291059a2e519b3ba3f6498c6811071` |
-| [x86 APK](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/17/artifact/artifacts/apk/v2rayNG_2.2.6-fdroid_x86.apk) | 45M | `44fb03812b8762b0d94350d5ae53c6056a3da879e3c5a3662825c5af1a83c605` |
-| [x86_64 APK](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/17/artifact/artifacts/apk/v2rayNG_2.2.6-fdroid_x86_64.apk) | 44M | `184d88be8f7a44b29630fa65b296f03760a94b38debb70a27f2c0e471f303510` |
-| [libv2ray.aar](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/17/artifact/artifacts/libv2ray.aar) | 75M | `7bc3359673b79afd3484eff93b3b6874a079fa22e36516c91abd2c22960451d6` |
+| [arm64-v8a APK](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/21/artifact/artifacts/apk/v2rayNG_2.2.6-fdroid_arm64-v8a.apk) | 43M | `5d5792f033d36180ee29b1d7b24457e53ecb476f029b9065a97e7e584e759904` |
+| [armeabi-v7a APK](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/21/artifact/artifacts/apk/v2rayNG_2.2.6-fdroid_armeabi-v7a.apk) | 43M | `94bf8db0e65ba09cd3e5b5e7549f9a81486de440adf04e86a8278da04b254f56` |
+| [Universal APK](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/21/artifact/artifacts/apk/v2rayNG_2.2.6-fdroid_universal.apk) | 100M | `9e4c004d707c313e3a4156c2ec1e3770f36142fdc052778b6e98e03c73942029` |
+| [x86 APK](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/21/artifact/artifacts/apk/v2rayNG_2.2.6-fdroid_x86.apk) | 45M | `e8b44b52697e4892c9cd373061cdf1e7643c8cd5c4875cffb8586e068294346e` |
+| [x86_64 APK](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/21/artifact/artifacts/apk/v2rayNG_2.2.6-fdroid_x86_64.apk) | 45M | `fc0f80540bec3975521912e605fbd7b242ebfee3d2d3c72c31fc13156a3a3cd6` |
+| [libv2ray.aar](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/21/artifact/artifacts/libv2ray.aar) | 75M | `7bc3359673b79afd3484eff93b3b6874a079fa22e36516c91abd2c22960451d6` |
 
 AAR 中四个 `libgojni.so` 的未压缩大小为：
 
@@ -244,7 +267,18 @@ AAR 中四个 `libgojni.so` 的未压缩大小为：
 - `x86`：45,533,400 bytes
 - `x86_64`：48,668,864 bytes
 
-Universal APK 已检查同时包含以上四个 ABI。AAR 的 `CoreController` 已通过 `javap` 确认包含：
+Universal APK 已检查同时包含以上四个 ABI。每个 ABI 还包含以下 HEV 文件：
+
+| ABI | `libhev-socks5-tunnel.so` | `libhevsockstun.so` |
+|---|---:|---:|
+| `armeabi-v7a` | 235,652 bytes | 163,504 bytes |
+| `arm64-v8a` | 342,696 bytes | 240,464 bytes |
+| `x86` | 327,168 bytes | 235,364 bytes |
+| `x86_64` | 341,536 bytes | 238,944 bytes |
+
+独立下载的 arm64、armeabi-v7a 和 Universal APK 均再次运行
+`ci/jenkins/verify-native-apk.sh`，结果通过；本地 SHA-256 与 Jenkins 清单一致。AAR 的
+`CoreController` 已通过 `javap` 确认包含：
 
 ```java
 public native void notifyNetworkChanged();
@@ -252,10 +286,10 @@ public native void notifyNetworkChanged();
 
 其他证据：
 
-- [commit manifest](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/17/artifact/artifacts/commit-manifest.json)
-- [APK SHA-256](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/17/artifact/artifacts/apk.sha256)
-- [AAR SHA-256](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/17/artifact/artifacts/libv2ray.aar.sha256)
-- [JUnit 报告](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/17/testReport/)
+- [commit manifest](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/21/artifact/artifacts/commit-manifest.json)
+- [APK SHA-256](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/21/artifact/artifacts/apk.sha256)
+- [AAR SHA-256](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/21/artifact/artifacts/libv2ray.aar.sha256)
+- [JUnit 报告](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/21/testReport/)
 
 ## 8. sing-box 真实互通验证
 
@@ -325,11 +359,14 @@ Xray E2E 配置故意只包含：
 | ECH | 已验证到配置、校验和构建 | 未做 ECH 服务端正反例 |
 | Extra Headers | 已验证到校验和配置生成 | 未做要求特定 Header 的前置代理活体测试 |
 | 网络切换通知 | 已验证到 AAR API 和调用路径 | 未做 Android Wi-Fi/蜂窝真实切换 |
-| 四 ABI AAR/APK | 已验证 | Jenkins #17 AAR/APK 内容检查 |
+| 四 ABI AAR/APK | 已验证 | Jenkins #21 AAR/APK 内容检查、逐 ABI Go/HEV 文件门禁和独立下载复核 |
+| 默认 HEV TUN 原生库 | 已验证到打包 | #21 五个 APK 均包含 `libhev-socks5-tunnel.so` 和 `libhevsockstun.so`；尚待真机启动复测 |
 
 ## 10. 尚需 Android 真机验证
 
-当前没有授权的 ADB 设备，因此以下事项不能写成已完成：
+用户提供的真机日志已经确认 #17 在默认 HEV TUN 路径因缺少
+`libhev-socks5-tunnel.so` 崩溃；该 APK 已废弃。当前没有授权的 ADB 设备安装 #21，
+因此以下事项仍不能写成已完成：
 
 - 在手机上新建、保存、重开和编辑 Naive 节点。
 - 扫码导入、剪贴板导入和分享二维码的完整交互。

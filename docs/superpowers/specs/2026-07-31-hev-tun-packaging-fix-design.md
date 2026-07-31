@@ -2,7 +2,7 @@
 
 日期：2026-07-31
 
-状态：已批准，待实施
+状态：已实施并由 Jenkins #21 验证
 
 目标分支：`feature/native-naiveproxy`
 
@@ -72,7 +72,7 @@ Docker builder 已固定 `ANDROID_NDK_HOME=/opt/android-sdk/ndk/29.0.14206865`�
 复制 v2rayNG 源码后，在 Gradle 之前执行仓库脚本：
 
 ```bash
-bash compile-hevtun.sh
+NDK_HOME="${ANDROID_NDK_HOME}" bash compile-hevtun.sh
 cp -R libs/. V2rayNG/app/libs/
 ```
 
@@ -129,11 +129,33 @@ APK 交付。
 
 ## 6. 修改范围
 
-计划只修改：
+实际修改：
 
 - `ci/jenkins/Jenkinsfile.naive`
 - `ci/jenkins/Dockerfile.android`
 - `ci/jenkins/.dockerignore.android`
+- `ci/jenkins/verify-native-apk.sh`
 - Jenkins/实施文档
 
 不修改 Naive 协议实现、手机配置模型、TUN 默认值、`TProxyService` 或其他协议代码。
+
+## 7. 实施与验证结果
+
+- 实现提交：`2a035c0 fix: package HEV TUN native libraries`
+- NDK 变量修复：`2d834c5 fix: pass pinned NDK to HEV build`
+- HEV 子模块：`ad7600497931205105b08367bd1b450048157e40`
+- 最终流水线：Jenkins #21，状态 `SUCCESS`，耗时 743445 ms
+- Android JUnit：33 项，失败 0，跳过 0
+- APK：arm64-v8a、armeabi-v7a、x86、x86_64、Universal 全部构建并通过门禁
+- 独立复核：下载 arm64-v8a、armeabi-v7a 和 Universal APK，SHA-256 与 Jenkins
+  清单一致，三类原生文件检查全部通过
+
+Universal APK 中四个 ABI 均包含：
+
+- `libgojni.so`
+- `libhev-socks5-tunnel.so`
+- `libhevsockstun.so`
+
+#17 的确定性失败检查继续保留为回归证据：同一验证脚本会报告
+`lib/armeabi-v7a/libhev-socks5-tunnel.so` 缺失并返回非零。#21 已消除用户日志中的
+确定性缺库条件，但仍需在真机安装 #21 后确认默认 HEV TUN 能启动并通过实际流量。
