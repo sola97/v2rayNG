@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   build:
@@ -101,6 +102,38 @@ jobs:
         ./gradlew licenseFdroidReleaseReport
         ./gradlew assembleRelease -Pandroid.injected.signing.store.file=${{ steps.android_keystore.outputs.filePath }} -Pandroid.injected.signing.store.password=${{ secrets.APP_KEYSTORE_PASSWORD }} -Pandroid.injected.signing.key.alias=${{ secrets.APP_KEYSTORE_ALIAS }} -Pandroid.injected.signing.key.password=${{ secrets.APP_KEY_PASSWORD }}
     
+    - name: Remove previous artifacts for this workflow  # codex-artifact-retention-cleanup
+      if: ${{  success() }}
+      continue-on-error: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+      uses: actions/github-script@v9
+      with:
+        github-token: ${{ github.token }}
+        script: |
+          const { owner, repo } = context.repo;
+          const currentRun = await github.rest.actions.getWorkflowRun({
+            owner,
+            repo,
+            run_id: context.runId
+          });
+          const artifacts = await github.paginate(
+            github.rest.actions.listArtifactsForRepo,
+            { owner, repo, per_page: 100 }
+          );
+          const previousArtifacts = artifacts.filter((artifact) =>
+            !artifact.expired &&
+            artifact.workflow_run &&
+            String(artifact.workflow_run.workflow_id) === String(currentRun.data.workflow_id) &&
+            String(artifact.workflow_run.id) !== String(context.runId)
+          );
+          for (const artifact of previousArtifacts) {
+            await github.rest.actions.deleteArtifact({
+              owner,
+              repo,
+              artifact_id: artifact.id
+            });
+            core.info(`Deleted previous artifact: ${artifact.name} (${artifact.id})`);
+          }
+          core.info(`Removed ${previousArtifacts.length} previous artifact(s)`);
     - name: Upload arm64-v8a APK
       uses: actions/upload-artifact@v7
       if: ${{  success() }}
@@ -108,6 +141,7 @@ jobs:
         name: arm64-v8a
         path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*arm64-v8a*.apk
 
+        retention-days: 1
     - name: Upload armeabi-v7a APK
       uses: actions/upload-artifact@v7
       if: ${{  success() }}
@@ -115,6 +149,7 @@ jobs:
         name: armeabi-v7a
         path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*armeabi-v7a*.apk
 
+        retention-days: 1
     - name: Upload x86 APK
       uses: actions/upload-artifact@v7
       if: ${{  success() }}
@@ -122,6 +157,7 @@ jobs:
         name: x86-apk
         path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*x86*.apk
 
+        retention-days: 1
     - name: Upload universal APK
       uses: actions/upload-artifact@v7
       if: ${{ success() }}
@@ -129,6 +165,7 @@ jobs:
         name: universal-apk
         path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*universal*.apk
 
+        retention-days: 1
   sign-and-release:
     needs: build
     runs-on: ubuntu-26.04
