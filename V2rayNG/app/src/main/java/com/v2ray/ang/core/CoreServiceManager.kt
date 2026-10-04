@@ -44,7 +44,6 @@ import libv2ray.CoreController
 import libv2ray.ProcessFinder
 import java.lang.ref.SoftReference
 import java.net.InetSocketAddress
-import java.util.concurrent.atomic.AtomicBoolean
 
 object CoreServiceManager {
 
@@ -55,7 +54,6 @@ object CoreServiceManager {
     private var browserDialer: IDialerService? = null
     private val naiveRecoveryState = NaiveRecoveryState()
     private val networkRecoveryState = NetworkRecoveryState()
-    private val networkChangeNotificationPending = AtomicBoolean(false)
 
     var serviceControl: SoftReference<ServiceControl>? = null
         set(value) {
@@ -125,7 +123,6 @@ object CoreServiceManager {
 
     fun notifyNetworkChanged() {
         if (!coreController.isRunning) return
-        if (!networkChangeNotificationPending.compareAndSet(false, true)) return
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 if (coreController.isRunning) {
@@ -133,8 +130,6 @@ object CoreServiceManager {
                 }
             } catch (e: Exception) {
                 LogUtil.e(AppConfig.TAG, "StartCore-Manager: Failed to notify core about network change", e)
-            } finally {
-                networkChangeNotificationPending.set(false)
             }
         }
     }

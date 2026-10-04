@@ -3,6 +3,8 @@ package com.v2ray.ang.core
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicInteger
 
 class NaiveRecoveryStateTest {
     @Test
@@ -101,5 +103,26 @@ class NaiveRecoveryStateTest {
         assertFalse(state.onBlockedStatusChanged("wifi", true))
         assertFalse(state.onLinkPropertiesChanged("wifi", "dns=2"))
         assertFalse(state.onAvailable("wifi"))
+    }
+
+    @Test
+    fun concurrentRepeatedNetworkEventsOnlyReportOneTransition() {
+        val state = NetworkRecoveryState()
+        state.onAvailable("wifi")
+        val ready = CountDownLatch(16)
+        val start = CountDownLatch(1)
+        val transitions = AtomicInteger()
+        val callers = List(16) {
+            Thread {
+                ready.countDown()
+                start.await()
+                if (state.onAvailable("cellular")) transitions.incrementAndGet()
+            }.apply { start() }
+        }
+        ready.await()
+        start.countDown()
+        callers.forEach { it.join() }
+        org.junit.Assert.assertEquals(1, transitions.get())
+        assertTrue(state.isActive("cellular"))
     }
 }
