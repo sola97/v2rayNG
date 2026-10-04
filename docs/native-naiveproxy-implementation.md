@@ -1,6 +1,6 @@
 # v2rayNG 原生 NaiveProxy 实施与验证记录
 
-日期：2026-07-31
+首次交付日期：2026-07-31；后台连接恢复更新：2026-10-04。
 
 分支：`feature/native-naiveproxy`
 
@@ -424,3 +424,106 @@ Android Jenkins 构建：
 ```
 
 详细设计依据见 [v2rayNG 原生 NaiveProxy 设计](superpowers/specs/2026-07-30-native-naiveproxy-design.md)。
+
+## 14. 2026-10-04 后台连接恢复修复
+
+用户反馈 #21 的 Naive HTTPS 在长时间后台后代理应用均无法联网，手动断开、重连后恢复。当前没有连接的 ADB 设备，也没有该后台故障发生时的 Cronet/网络日志，因此不能将桌面服务端重启测试当作手机故障复现。这次修复分别补齐 Android 恢复事件通知和 Core CONNECT/取消边界。
+
+### 14.1 实际恢复规则
+
+| 边界 | 当前行为 |
+|---|---|
+| 单次 Naive CONNECT | 响应等待预算 5 秒；TCP 与 UoT 共用 |
+| CONNECT 预算超时 | 关闭该流，清理旧连接池，最多重试一次；两次握手等待合计约 10 秒 |
+| 并发 CONNECT 超时 | 同一出站的超时驱动连接池清理最多每 5 秒一次 |
+| 调用方取消或截止时间 | 关闭流并结束，不清理其他会话、不重试 |
+| 认证/证书等非超时错误 | 原错误向上报告，不通过重试隐藏 |
+| 已建立连接 | 不受 5 秒握手计时影响，关闭和取消绑定原请求 context |
+| 长息屏后亮屏 | 息屏至少 30 秒才通知恢复；短时间开关屏和重复亮屏不触发 |
+| Device Idle | 只在 idle 转为 active 时通知；启动时读取当前状态 |
+| Core 启动时屏幕已关闭 | 从启动时的 monotonic elapsedRealtime 开始记录息屏时间 |
+| 网络恢复 | 当前网络切换、丢失、blocked→unblocked，以及接口/地址/路由/DNS 变化触发通知 |
+| 重复/旧网络回调 | 首次属性回调不清池，同值回调和旧网络迟到事件忽略 |
+
+Android 通知使用现有 `CoreController.notifyNetworkChanged()`，在 IO 协程中执行；Core 的现有出站锁串行保护连接池清理。不会重启整个 VPN、创建插件或第二个客户端核心。网络状态访问已同步，重复事件在状态层过滤，不能因为已有通知在途而丢弃新的有效变化事件。
+
+自动重试仅发生在业务数据转发前，不重放已发送的应用数据。清池会中断现有 Naive 会话，后续请求重新建立连接；它不是已建立 TCP 会话的无损迁移。极弱网络下，合法但慢于 5 秒的握手也可能超时。5 秒是 Core 内部 CONNECT 策略，不是整个应用请求的硬截止时间。
+
+VPN 的原有底层网络回调 API 28 门槛未扩大；API 24–27 仍能使用 Core 超时/取消和屏幕/idle 恢复路径，但新增 VPN 网络回调覆盖不作承诺。HTTPS 是本次真实互通测试的传输；QUIC、ECH 和实体设备验证边界仍按前文处理。
+
+### 14.2 固定源码提交
+
+| 层 | 提交 | 内容 |
+|---|---|---|
+| Core | [`1c3fcd89e9ed`](https://github.com/sola97/Xray-core/commit/1c3fcd89e9ed6726b79314f95fd0a60bc7c6ffdb) | 5 秒 CONNECT、一次负载前重试、原请求取消和超时清池合并 |
+| AAR | [`7b5d785cf33a`](https://github.com/sola97/AndroidLibXrayLite/commit/7b5d785cf33adb75481fcd2b5b0340f9f44c82f4) | 固定上述 Core；仍仅链接四个 Android Cronet 平台模块 |
+| App/CI | [`686b7a3dde18`](https://github.com/sola97/v2rayNG/commit/686b7a3dde18e778a5440bbb4d8e2a9cde2ac93b) | 包含 Android 恢复回调、9 项状态单测、通知并发修复、真实无响应握手/服务端恢复 E2E 与冷缓存构建修复 |
+
+App 的功能提交为 `cd456c0`、`0b76cc2`；`25840c6` 修复 #22 暴露的 Docker 冷缓存清理缺陷。该构建的 Linux Core 测试已通过，但尚未存在的 Cronet 平台模块父目录被无条件 `find`，导致后续构建失败。新逻辑只跳过不存在的可选缓存目录，不吞已有目录的清理错误，不降低 AAR/APK 原生库门禁。
+
+### 14.3 已完成的 Core 与桌面验证
+
+以下命令通过：
+
+```powershell
+go test -tags with_purego ./proxy/naive
+go test -tags with_purego ./infra/conf -run '^TestNaive'
+go test -tags with_purego ./common/singbridge ./proxy/shadowsocks_2022
+# AndroidLib 仓库：编译检查，无测试文件
+go test -tags with_purego ./...
+# App 仓库：E2E harness 单测
+go test ci/e2e/naive_e2e.go ci/e2e/naive_e2e_test.go
+```
+
+Core 新增 8 项连接回归测试，覆盖悬挂握手恢复、拒绝错误、调用方截止时间、连接生命周期、重试上限、显式关闭注销取消钩子、预取消请求和并发清池。不能将 fake 连接测试描述为真实网络静默丢包验证。
+
+固定提交的正式 E2E runner 在 2026-10-04 14:50:41 UTC 完成：先验证 TCP/默认 UoT v2，再停止 sing-box、证明请求失败；随后在相同端点放置接受 TCP 但不回复 TLS 的真实无响应握手服务，验证两次 5 秒 CONNECT 尝试在 10.048 秒后结束，日志确认超时清池。最后在相同端点重启 sing-box。Xray PID 始终为 32892，没有重启客户端，后续 TCP 和 UDP 均恢复成功。
+
+```json
+{
+  "passed": true,
+  "udpOverTcpVersion": 2,
+  "serverOutageDetected": true,
+  "tcpDuringServerOutage": "failed as expected",
+  "stalledHandshake": "failed within two 5-second CONNECT attempts as expected",
+  "stalledHandshakeMillis": 10048,
+  "tcpAfterServerRestart": "passed",
+  "udpAfterServerRestart": "passed",
+  "naiveEndpointReused": true,
+  "xrayRestarted": false
+}
+```
+
+证据目录：`E:\CodexBuildCache\native-naive-20261004\e2e-blackhole-result`。真实测试逻辑包含在 App 仓库提交 `8bf4741` 中，测试失败不会被当作成功恢复。
+
+| E2E 文件 | SHA-256 |
+|---|---|
+| Xray | `5903A286C43C6F20563F7F0E267680B4825E3EF443E8C425D238DBF20E5A6A0F` |
+| sing-box | `BC0927BF302F2CACE9F02B67E4DA4F59CAC0BFE2390E25051565F7B70BF8918E` |
+| Cronet Windows DLL | `C7434CFA93C3041321DD19111C4DE6C52B8A9531A65661BA45425D3C51EC69E2` |
+| E2E harness | `B0CB1B5F0429A9D8D7D9DF22D80E2DDC4FD57CCBE5BB908BBB945854B4E564E7` |
+
+Android 长时间锁屏/Doze、真实 Wi-Fi/蜂窝切换、已建立 HTTP/2 会话的静默丢包、厂商后台限制及旧会话中断后的应用自身恢复，仍需授权设备验证。上述无响应 TLS 建连测试不能代替手机后台故障复现。
+
+### 14.4 最终 Android 构建与安装限制
+
+[Jenkins #25](https://jenkins-nuc.sora.vip/job/v2rayng-naive-android-ci/25/) 为 **SUCCESS**，用时 356146 ms（5 分 56 秒）。`commit-manifest.json` 与 14.2 的三个固定提交一致，HEV gitlink 为 `ad7600497931205105b08367bd1b450048157e40`。
+
+Android JUnit 共 42 项，0 失败、0 错误、0 跳过；其中 `NaiveRecoveryStateTest` 为 9 项。AAR 包含四 ABI 的非空 `libgojni.so`，导出原有 `notifyNetworkChanged()`。五个 F-Droid debug APK 均已下载，SHA-256、ZIP 完整性、签名及逐 ABI 非空 Go/HEV 库复核通过。Universal 恰好包含 `arm64-v8a`、`armeabi-v7a`、`x86`、`x86_64`；单 ABI APK 与文件名匹配。
+
+| 产物 | SHA-256 |
+|---|---|
+| arm64-v8a APK | `8a7306e7377655638dda1e83b308739a2bca85936c7d9f18d300cc98534401dc` |
+| armeabi-v7a APK | `2b49481fe7e110e8fbd42e9a603d3339d0b91a9e9af26af22916f9c5cd4dab20` |
+| Universal APK | `56d40d80a9749685c909bdf22195ab7ed31add84281cbd58f47aedc1c875ce4f` |
+| x86 APK | `1e90adca80f1b0d2861cbaaa622276b7e3d80c4c02afec5b3864588a59d79795` |
+| x86_64 APK | `d96b47a48b99334b077b221029739de7b328fdd93d8572a7c1ae956d002bff62` |
+| libv2ray.aar | `3be4461f527848d7dc42194c5ae605340d64829fc8a64e9d1fb55bc8ec119fff` |
+
+下载目录：`E:\CodexBuildCache\native-naive-20261004\jenkins-25`。APK 位于 `apk` 子目录，提交清单、哈希和 JUnit XML 一并保留。主流 64 位 ARM 手机选择 `v2rayNG_2.2.6-fdroid_arm64-v8a.apk`；不确定 ABI 时可用 Universal，但仍必须遵守以下签名限制。
+
+**不能直接覆盖 #21：** 五个 #25 APK 使用同一 debug 证书，其 SHA-256 为 `35382408c9e341782a9c8352d085594f9c859a78813f2ab477779793aec5b678`；历史 #21 arm64 APK 的证书为 `c23003f2bbc5a150f949ea0d7ed47249ea26a87c12b8575e777d8496a8eb1b87`。证书不一致，正常 Android 安装不能作为同一包的覆盖升级。不要直接卸载或清除数据；先在旧版导出节点/配置并确认备份。无损覆盖升级需要找回 #21 原签名私钥，不能从 APK 恢复私钥。本次没有修改手机、卸载应用、导出手机数据或绕过 Android 签名校验。后续发布应采用持久化、受保护的固定签名密钥，而不能依赖 Docker 临时生成的 debug keystore。
+
+构建问题均先诊断再处理：#22 修复可选 Cronet 缓存目录不存在；#23 因 Go checksum 服务连接 EOF 失败，进行一次受控重试；#24 编译通过但新增启动息屏测试将重复亮屏当成未消费的息屏周期，违反状态契约。`686b7a3` 改为两个独立启动周期分别验证短息屏与 30 秒边界，保留重复亮屏必须不触发的断言，未为通过测试而修改产品行为。最终 #25 完成全链路验证，没有关闭 checksum/TLS/原生库门禁。
+
+此交付验证到桌面真实 HTTPS/默认 UoT v2 恢复、Android 编译/单测及 APK 静态完整性；无授权 ADB 设备，**未验证手机长时间后台故障已经消失**，也未执行 Android 安装、HEV 运行期启动、Doze 或 Wi-Fi/蜂窝切换。
