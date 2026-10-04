@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
+import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
@@ -62,17 +63,32 @@ class CoreVpnService : VpnService(), ServiceControl {
         object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 setUnderlyingNetworks(arrayOf(network))
-                CoreServiceManager.notifyNetworkChanged()
+                CoreServiceManager.onDefaultNetworkAvailable(network.toString())
             }
 
             override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
                 // it's a good idea to refresh capabilities
-                setUnderlyingNetworks(arrayOf(network))
+                if (CoreServiceManager.isTrackedNetwork(network.toString())) {
+                    setUnderlyingNetworks(arrayOf(network))
+                }
             }
 
             override fun onLost(network: Network) {
-                setUnderlyingNetworks(null)
-                CoreServiceManager.notifyNetworkChanged()
+                if (CoreServiceManager.onDefaultNetworkLost(network.toString())) {
+                    setUnderlyingNetworks(null)
+                    CoreServiceManager.notifyNetworkChanged()
+                }
+            }
+
+            override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+                CoreServiceManager.onNetworkLinkPropertiesChanged(
+                    network.toString(),
+                    linkProperties.recoverySignature()
+                )
+            }
+
+            override fun onBlockedStatusChanged(network: Network, blocked: Boolean) {
+                CoreServiceManager.onNetworkBlockedStatusChanged(network.toString(), blocked)
             }
         }
     }
@@ -288,6 +304,7 @@ class CoreVpnService : VpnService(), ServiceControl {
         // Android P (API 28) and above: Configure network callbacks
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             try {
+                CoreServiceManager.resetNetworkRecoveryState()
                 connectivity.requestNetwork(defaultNetworkRequest, defaultNetworkCallback)
             } catch (e: Exception) {
                 LogUtil.e(AppConfig.TAG, "StartCore-VPN: Failed to request network", e)
@@ -380,6 +397,7 @@ class CoreVpnService : VpnService(), ServiceControl {
             } catch (e: Exception) {
                 LogUtil.w(AppConfig.TAG, "StartCore-VPN: Failed to unregister callback", e)
             }
+            CoreServiceManager.resetNetworkRecoveryState()
         }
 
         tun2SocksService?.stopTun2Socks()

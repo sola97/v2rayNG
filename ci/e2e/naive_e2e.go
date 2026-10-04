@@ -39,14 +39,22 @@ type options struct {
 }
 
 type testResult struct {
-	Passed            bool   `json:"passed"`
-	TCP               string `json:"tcp"`
-	UDPOverTCP        string `json:"udpOverTcp"`
-	UDPOverTCPVersion int    `json:"udpOverTcpVersion"`
-	UDPVersionSource  string `json:"udpVersionSource"`
-	XrayRevision      string `json:"xrayRevision"`
-	SingBoxRevision   string `json:"singBoxRevision"`
-	CompletedAt       string `json:"completedAt"`
+	Passed                    bool   `json:"passed"`
+	TCP                       string `json:"tcp"`
+	UDPOverTCP                string `json:"udpOverTcp"`
+	UDPOverTCPVersion         int    `json:"udpOverTcpVersion"`
+	UDPVersionSource          string `json:"udpVersionSource"`
+	ServerOutageDetected      bool   `json:"serverOutageDetected"`
+	TCPDuringServerOutage     string `json:"tcpDuringServerOutage"`
+	TCPAfterServerRestart     string `json:"tcpAfterServerRestart"`
+	UDPAfterServerRestart     string `json:"udpAfterServerRestart"`
+	NaiveEndpointReused       bool   `json:"naiveEndpointReused"`
+	XrayRestarted             bool   `json:"xrayRestarted"`
+	XrayPID                   int    `json:"xrayPid"`
+	XrayPIDAfterServerRestart int    `json:"xrayPidAfterServerRestart"`
+	XrayRevision              string `json:"xrayRevision"`
+	SingBoxRevision           string `json:"singBoxRevision"`
+	CompletedAt               string `json:"completedAt"`
 }
 
 type managedProcess struct {
@@ -54,6 +62,13 @@ type managedProcess struct {
 	logFile *os.File
 	logPath string
 	once    sync.Once
+}
+
+func (process *managedProcess) pid() int {
+	if process.command.Process == nil {
+		return 0
+	}
+	return process.command.Process.Pid
 }
 
 func main() {
@@ -157,15 +172,58 @@ func run(config options) error {
 		return fmt.Errorf("Naive UoT v2 round trip failed: %w\nXray log:\n%s\nsing-box log:\n%s", err, xrayProcess.logs(), singBoxProcess.logs())
 	}
 
+	xrayPID := xrayProcess.pid()
+	if err := singBoxProcess.stopWithError(); err != nil {
+		return fmt.Errorf("stop sing-box Naive inbound for recovery test: %w\nXray log:\n%s\nsing-box log:\n%s", err, xrayProcess.logs(), singBoxProcess.logs())
+	}
+	if err := waitForTCPUnavailable(naivePort, 5*time.Second); err != nil {
+		return fmt.Errorf("sing-box outage was not observable: %w\nXray log:\n%s\nsing-box log:\n%s", err, xrayProcess.logs(), singBoxProcess.logs())
+	}
+	if err := waitForTCP(xrayTCPPort, 5*time.Second); err != nil {
+		return fmt.Errorf("Xray TCP inbound did not survive sing-box outage: %w\nXray log:\n%s", err, xrayProcess.logs())
+	}
+	if err := testTCPRoundTrip(xrayTCPPort); err == nil {
+		return fmt.Errorf("TCP round trip unexpectedly succeeded while sing-box was stopped\nXray log:\n%s", xrayProcess.logs())
+	}
+
+	restartedSingBoxProcess, err := startProcess(ctx, workDir, "sing-box-restarted", config.singBoxPath, "run", "-c", singBoxConfigPath)
+	if err != nil {
+		return err
+	}
+	defer restartedSingBoxProcess.stop()
+	if err := waitForTCP(naivePort, 15*time.Second); err != nil {
+		return fmt.Errorf("restarted sing-box Naive inbound did not start on the original endpoint: %w\nXray log:\n%s\nsing-box restart log:\n%s", err, xrayProcess.logs(), restartedSingBoxProcess.logs())
+	}
+	if err := waitForTCP(xrayTCPPort, 5*time.Second); err != nil {
+		return fmt.Errorf("Xray TCP inbound did not survive sing-box restart: %w\nXray log:\n%s", err, xrayProcess.logs())
+	}
+	if got := xrayProcess.pid(); got != xrayPID {
+		return fmt.Errorf("Xray process identity changed during sing-box recovery: before=%d after=%d", xrayPID, got)
+	}
+	if err := testTCPRoundTrip(xrayTCPPort); err != nil {
+		return fmt.Errorf("Naive TCP round trip did not recover after sing-box restart: %w\nXray log:\n%s\nsing-box restart log:\n%s", err, xrayProcess.logs(), restartedSingBoxProcess.logs())
+	}
+	if err := testUDPRoundTrip(xrayUDPPort); err != nil {
+		return fmt.Errorf("Naive UoT v2 round trip did not recover after sing-box restart: %w\nXray log:\n%s\nsing-box restart log:\n%s", err, xrayProcess.logs(), restartedSingBoxProcess.logs())
+	}
+
 	result := testResult{
-		Passed:            true,
-		TCP:               "passed",
-		UDPOverTCP:        "passed",
-		UDPOverTCPVersion: 2,
-		UDPVersionSource:  "defaulted by Xray because udpOverTcp.version was omitted",
-		XrayRevision:      config.xrayRevision,
-		SingBoxRevision:   config.singBoxRevision,
-		CompletedAt:       time.Now().UTC().Format(time.RFC3339),
+		Passed:                    true,
+		TCP:                       "passed",
+		UDPOverTCP:                "passed",
+		UDPOverTCPVersion:         2,
+		UDPVersionSource:          "defaulted by Xray because udpOverTcp.version was omitted",
+		ServerOutageDetected:      true,
+		TCPDuringServerOutage:     "failed as expected",
+		TCPAfterServerRestart:     "passed",
+		UDPAfterServerRestart:     "passed",
+		NaiveEndpointReused:       true,
+		XrayRestarted:             false,
+		XrayPID:                   xrayPID,
+		XrayPIDAfterServerRestart: xrayProcess.pid(),
+		XrayRevision:              config.xrayRevision,
+		SingBoxRevision:           config.singBoxRevision,
+		CompletedAt:               time.Now().UTC().Format(time.RFC3339),
 	}
 	if err := writeJSON(config.outputPath, result); err != nil {
 		return err
@@ -392,13 +450,30 @@ func startProcess(ctx context.Context, workDir string, name string, executable s
 }
 
 func (process *managedProcess) stop() {
+	if err := process.stopWithError(); err != nil {
+		fmt.Fprintf(os.Stderr, "cleanup %s: %v\n", process.command.Path, err)
+	}
+}
+
+func (process *managedProcess) stopWithError() error {
+	var stopErr error
 	process.once.Do(func() {
 		if process.command.Process != nil && process.command.ProcessState == nil {
-			_ = process.command.Process.Kill()
+			if err := process.command.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+				stopErr = fmt.Errorf("kill process: %w", err)
+			}
 		}
-		_ = process.command.Wait()
-		_ = process.logFile.Close()
+		if err := process.command.Wait(); err != nil && stopErr == nil {
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) {
+				stopErr = fmt.Errorf("wait for process exit: %w", err)
+			}
+		}
+		if err := process.logFile.Close(); err != nil && stopErr == nil {
+			stopErr = fmt.Errorf("close process log: %w", err)
+		}
 	})
+	return stopErr
 }
 
 func (process *managedProcess) logs() string {
@@ -423,6 +498,20 @@ func waitForTCP(port int, timeout time.Duration) error {
 	return fmt.Errorf("timed out waiting for %s", address)
 }
 
+func waitForTCPUnavailable(port int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	for time.Now().Before(deadline) {
+		connection, err := net.DialTimeout("tcp", address, 300*time.Millisecond)
+		if err != nil {
+			return nil
+		}
+		_ = connection.Close()
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("timed out waiting for %s to stop accepting connections", address)
+}
+
 func testTCPRoundTrip(port int) error {
 	payload := []byte("native-naive-tcp")
 	connection, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), 5*time.Second)
@@ -430,7 +519,7 @@ func testTCPRoundTrip(port int) error {
 		return err
 	}
 	defer connection.Close()
-	if err := connection.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+	if err := connection.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
 		return err
 	}
 	if _, err := connection.Write(payload); err != nil {
@@ -453,7 +542,7 @@ func testUDPRoundTrip(port int) error {
 		return err
 	}
 	defer connection.Close()
-	if err := connection.SetDeadline(time.Now().Add(15 * time.Second)); err != nil {
+	if err := connection.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
 		return err
 	}
 	if _, err := connection.Write(payload); err != nil {

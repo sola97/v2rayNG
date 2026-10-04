@@ -2,7 +2,7 @@
 param(
     [string]$WorkRoot = (Join-Path ([IO.Path]::GetTempPath()) 'v2rayng-native-naive-e2e'),
     [string]$OutputDirectory,
-    [string]$XrayRef = '3ac438417f44ad853477a3f317f27ae18620f6b0',
+    [string]$XrayRef = '1c3fcd89e9ed6726b79314f95fd0a60bc7c6ffdb',
     [string]$SingBoxRef = '4f7f89463ccfa506f90c46c715cf9798159d2c44',
     [string]$XraySource,
     [string]$SingBoxSource

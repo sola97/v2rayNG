@@ -3,7 +3,7 @@ param(
     [string]$JenkinsUrl = 'https://jenkins-nuc.sora.vip/',
     [string]$JobName = 'v2rayng-naive-android-ci',
     [string]$CredentialFile = 'C:\Users\H\.codex\secrets\old-dc-jenkins-ci.json',
-    [string]$XrayRef = '3ac438417f44ad853477a3f317f27ae18620f6b0',
+    [string]$XrayRef = '1c3fcd89e9ed6726b79314f95fd0a60bc7c6ffdb',
     [string]$AndroidLibRef = 'feature/native-naiveproxy',
     [string]$V2rayNGRef = 'feature/native-naiveproxy',
     [switch]$BuildPlayStore,
@@ -78,7 +78,7 @@ function Get-JobConfigXml {
         <hudson.model.StringParameterDefinition>
           <name>XRAY_REF</name>
           <description>Ref in sola97/Xray-core</description>
-          <defaultValue>3ac438417f44ad853477a3f317f27ae18620f6b0</defaultValue>
+          <defaultValue>1c3fcd89e9ed6726b79314f95fd0a60bc7c6ffdb</defaultValue>
           <trim>true</trim>
         </hudson.model.StringParameterDefinition>
         <hudson.model.StringParameterDefinition>

@@ -7,7 +7,9 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.os.Build
+import android.os.PowerManager
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.system.OsConstants
 import androidx.core.content.ContextCompat
 import com.v2ray.ang.AppConfig
@@ -42,6 +44,7 @@ import libv2ray.CoreController
 import libv2ray.ProcessFinder
 import java.lang.ref.SoftReference
 import java.net.InetSocketAddress
+import java.util.concurrent.atomic.AtomicBoolean
 
 object CoreServiceManager {
 
@@ -50,6 +53,9 @@ object CoreServiceManager {
     private var currentConfig: ProfileItem? = null
     private var processFinder: XrayProcessFinder? = null
     private var browserDialer: IDialerService? = null
+    private val naiveRecoveryState = NaiveRecoveryState()
+    private val networkRecoveryState = NetworkRecoveryState()
+    private val networkChangeNotificationPending = AtomicBoolean(false)
 
     var serviceControl: SoftReference<ServiceControl>? = null
         set(value) {
@@ -119,12 +125,37 @@ object CoreServiceManager {
 
     fun notifyNetworkChanged() {
         if (!coreController.isRunning) return
-        try {
-            coreController.notifyNetworkChanged()
-        } catch (e: Exception) {
-            LogUtil.e(AppConfig.TAG, "StartCore-Manager: Failed to notify core about network change", e)
+        if (!networkChangeNotificationPending.compareAndSet(false, true)) return
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                if (coreController.isRunning) {
+                    coreController.notifyNetworkChanged()
+                }
+            } catch (e: Exception) {
+                LogUtil.e(AppConfig.TAG, "StartCore-Manager: Failed to notify core about network change", e)
+            } finally {
+                networkChangeNotificationPending.set(false)
+            }
         }
     }
+
+    fun onDefaultNetworkAvailable(network: String) {
+        if (networkRecoveryState.onAvailable(network)) notifyNetworkChanged()
+    }
+
+    fun onDefaultNetworkLost(network: String) = networkRecoveryState.onLost(network)
+
+    fun isTrackedNetwork(network: String) = networkRecoveryState.isActive(network)
+
+    fun onNetworkBlockedStatusChanged(network: String, blocked: Boolean) {
+        if (networkRecoveryState.onBlockedStatusChanged(network, blocked)) notifyNetworkChanged()
+    }
+
+    fun onNetworkLinkPropertiesChanged(network: String, linkProperties: String) {
+        if (networkRecoveryState.onLinkPropertiesChanged(network, linkProperties)) notifyNetworkChanged()
+    }
+
+    fun resetNetworkRecoveryState() = networkRecoveryState.reset()
 
     /**
      * Gets the name of the currently running server.
@@ -262,7 +293,14 @@ object CoreServiceManager {
         mFilter.addAction(Intent.ACTION_SCREEN_ON)
         mFilter.addAction(Intent.ACTION_SCREEN_OFF)
         mFilter.addAction(Intent.ACTION_USER_PRESENT)
+        mFilter.addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED)
         ContextCompat.registerReceiver(service, mMsgReceive, mFilter, Utils.receiverFlags())
+
+        val powerManager = service.getSystemService(PowerManager::class.java)
+        naiveRecoveryState.reset(powerManager?.isDeviceIdleMode == true)
+        if (powerManager?.isInteractive == false) {
+            naiveRecoveryState.onScreenOff(SystemClock.elapsedRealtime())
+        }
 
         currentConfig = config
         var tunFd = vpnInterface?.fd ?: 0
@@ -315,6 +353,8 @@ object CoreServiceManager {
      * @return True if the core was stopped successfully, false otherwise.
      */
     fun stopCoreLoop(): Boolean {
+        naiveRecoveryState.reset(deviceIdle = false)
+        networkRecoveryState.reset()
         val service = getService() ?: return false
 
         if (coreController.isRunning) {
@@ -555,12 +595,23 @@ object CoreServiceManager {
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF -> {
                     LogUtil.i(AppConfig.TAG, "StartCore-Manager: Screen off")
+                    naiveRecoveryState.onScreenOff(SystemClock.elapsedRealtime())
                     NotificationManager.stopSpeedNotification()
                 }
 
                 Intent.ACTION_SCREEN_ON -> {
                     LogUtil.i(AppConfig.TAG, "StartCore-Manager: Screen on")
+                    if (naiveRecoveryState.onScreenOn(SystemClock.elapsedRealtime())) {
+                        notifyNetworkChanged()
+                    }
                     NotificationManager.startSpeedNotification()
+                }
+
+                PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> {
+                    val powerManager = ctx?.getSystemService(PowerManager::class.java)
+                    if (naiveRecoveryState.onDeviceIdleChanged(powerManager?.isDeviceIdleMode == true)) {
+                        notifyNetworkChanged()
+                    }
                 }
             }
         }
