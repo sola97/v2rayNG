@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -46,6 +47,8 @@ type testResult struct {
 	UDPVersionSource          string `json:"udpVersionSource"`
 	ServerOutageDetected      bool   `json:"serverOutageDetected"`
 	TCPDuringServerOutage     string `json:"tcpDuringServerOutage"`
+	StalledHandshake          string `json:"stalledHandshake"`
+	StalledHandshakeMillis    int64  `json:"stalledHandshakeMillis"`
 	TCPAfterServerRestart     string `json:"tcpAfterServerRestart"`
 	UDPAfterServerRestart     string `json:"udpAfterServerRestart"`
 	NaiveEndpointReused       bool   `json:"naiveEndpointReused"`
@@ -185,6 +188,13 @@ func run(config options) error {
 	if err := testTCPRoundTrip(xrayTCPPort); err == nil {
 		return fmt.Errorf("TCP round trip unexpectedly succeeded while sing-box was stopped\nXray log:\n%s", xrayProcess.logs())
 	}
+	stalledHandshakeDuration, err := testStalledHandshake(naivePort, xrayTCPPort)
+	if err != nil {
+		return fmt.Errorf("Naive stalled handshake budget failed: %w\nXray log:\n%s", err, xrayProcess.logs())
+	}
+	if !strings.Contains(xrayProcess.logs(), "naive: CONNECT timed out; cleared pooled connections") {
+		return fmt.Errorf("stalled handshake did not trigger pool refresh\nXray log:\n%s", xrayProcess.logs())
+	}
 
 	restartedSingBoxProcess, err := startProcess(ctx, workDir, "sing-box-restarted", config.singBoxPath, "run", "-c", singBoxConfigPath)
 	if err != nil {
@@ -215,6 +225,8 @@ func run(config options) error {
 		UDPVersionSource:          "defaulted by Xray because udpOverTcp.version was omitted",
 		ServerOutageDetected:      true,
 		TCPDuringServerOutage:     "failed as expected",
+		StalledHandshake:          "failed within two 5-second CONNECT attempts as expected",
+		StalledHandshakeMillis:    stalledHandshakeDuration.Milliseconds(),
 		TCPAfterServerRestart:     "passed",
 		UDPAfterServerRestart:     "passed",
 		NaiveEndpointReused:       true,
@@ -510,6 +522,48 @@ func waitForTCPUnavailable(port int, timeout time.Duration) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("timed out waiting for %s to stop accepting connections", address)
+}
+
+// Accept TCP but never respond to TLS. Cronet must not wait indefinitely before
+// returning the failed CONNECT to the caller. Closing the fixture also releases
+// any transport sockets kept alive by the engine before the server restarts.
+func testStalledHandshake(naivePort int, xrayTCPPort int) (time.Duration, error) {
+	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(naivePort)))
+	if err != nil {
+		return 0, err
+	}
+	var connections []net.Conn
+	stopped := make(chan struct{})
+	go collectStalledConnections(listener, &connections, stopped)
+	started := time.Now()
+	requestErr := testTCPRoundTrip(xrayTCPPort)
+	elapsed := time.Since(started)
+	_ = listener.Close()
+	<-stopped
+	for _, connection := range connections {
+		_ = connection.Close()
+	}
+	if requestErr == nil {
+		return elapsed, errors.New("stalled TLS endpoint unexpectedly forwarded application data")
+	}
+	if elapsed < 9500*time.Millisecond || elapsed > 20*time.Second {
+		return elapsed, fmt.Errorf("expected two 5-second handshake waits, got %v: %w", elapsed, requestErr)
+	}
+	if len(connections) < 2 {
+		return elapsed, fmt.Errorf("fresh retry was not observed: accepted %d TCP connections", len(connections))
+	}
+	return elapsed, nil
+}
+
+func collectStalledConnections(listener net.Listener, connections *[]net.Conn, stopped chan<- struct{}) {
+	defer close(stopped)
+	for {
+		connection, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		*connections = append(*connections, connection)
+	}
 }
 
 func testTCPRoundTrip(port int) error {
