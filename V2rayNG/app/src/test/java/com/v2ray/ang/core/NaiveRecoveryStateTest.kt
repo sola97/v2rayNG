@@ -36,7 +36,12 @@ class NaiveRecoveryStateTest {
         state.onScreenOff(10_000L)
 
         assertFalse(state.onScreenOn(39_999L))
-        assertTrue(state.onScreenOn(40_000L))
+        assertFalse(state.onScreenOn(40_000L))
+
+        state.reset(deviceIdle = false)
+        state.onScreenOff(50_000L)
+        assertTrue(state.onScreenOn(80_000L))
+        assertFalse(state.onScreenOn(80_001L))
     }
 
     @Test
