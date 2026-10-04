@@ -113,12 +113,14 @@ RUN --mount=type=cache,id=v2rayng-naive-go-mod,target=/go/pkg/mod \
                 -exec rm -rf -- {} +; \
         fi; \
     done \
-    && find /go/pkg/mod/github.com/sagernet/cronet-go \
-        -mindepth 1 \
-        -maxdepth 1 \
-        -type d \
-        -name 'all@*' \
-        -exec rm -rf -- {} + \
+    && if test -d /go/pkg/mod/github.com/sagernet/cronet-go; then \
+        find /go/pkg/mod/github.com/sagernet/cronet-go \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -type d \
+            -name 'all@*' \
+            -exec rm -rf -- {} +; \
+    fi \
     && rm -rf -- /go/pkg/mod/cache/download/github.com/sagernet/cronet-go/all
 
 WORKDIR /src/androidlib
