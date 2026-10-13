@@ -102,38 +102,6 @@ jobs:
         ./gradlew licenseFdroidReleaseReport
         ./gradlew assembleRelease -Pandroid.injected.signing.store.file=${{ steps.android_keystore.outputs.filePath }} -Pandroid.injected.signing.store.password=${{ secrets.APP_KEYSTORE_PASSWORD }} -Pandroid.injected.signing.key.alias=${{ secrets.APP_KEYSTORE_ALIAS }} -Pandroid.injected.signing.key.password=${{ secrets.APP_KEY_PASSWORD }}
     
-    - name: Remove previous artifacts for this workflow  # codex-artifact-retention-cleanup
-      if: ${{  success() }}
-      continue-on-error: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-      uses: actions/github-script@v9
-      with:
-        github-token: ${{ github.token }}
-        script: |
-          const { owner, repo } = context.repo;
-          const currentRun = await github.rest.actions.getWorkflowRun({
-            owner,
-            repo,
-            run_id: context.runId
-          });
-          const artifacts = await github.paginate(
-            github.rest.actions.listArtifactsForRepo,
-            { owner, repo, per_page: 100 }
-          );
-          const previousArtifacts = artifacts.filter((artifact) =>
-            !artifact.expired &&
-            artifact.workflow_run &&
-            String(artifact.workflow_run.workflow_id) === String(currentRun.data.workflow_id) &&
-            String(artifact.workflow_run.id) !== String(context.runId)
-          );
-          for (const artifact of previousArtifacts) {
-            await github.rest.actions.deleteArtifact({
-              owner,
-              repo,
-              artifact_id: artifact.id
-            });
-            core.info(`Deleted previous artifact: ${artifact.name} (${artifact.id})`);
-          }
-          core.info(`Removed ${previousArtifacts.length} previous artifact(s)`);
     - name: Upload arm64-v8a APK
       uses: actions/upload-artifact@v7
       if: ${{  success() }}
@@ -141,7 +109,7 @@ jobs:
         name: arm64-v8a
         path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*arm64-v8a*.apk
 
-        retention-days: 1
+        retention-days: 7
     - name: Upload armeabi-v7a APK
       uses: actions/upload-artifact@v7
       if: ${{  success() }}
@@ -149,7 +117,7 @@ jobs:
         name: armeabi-v7a
         path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*armeabi-v7a*.apk
 
-        retention-days: 1
+        retention-days: 7
     - name: Upload x86 APK
       uses: actions/upload-artifact@v7
       if: ${{  success() }}
@@ -157,7 +125,7 @@ jobs:
         name: x86-apk
         path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*x86*.apk
 
-        retention-days: 1
+        retention-days: 7
     - name: Upload universal APK
       uses: actions/upload-artifact@v7
       if: ${{ success() }}
@@ -165,15 +133,154 @@ jobs:
         name: universal-apk
         path: ${{ github.workspace }}/V2rayNG/app/build/outputs/apk/*/release/*universal*.apk
 
-        retention-days: 1
+        retention-days: 7
   sign-and-release:
     needs: build
     runs-on: ubuntu-26.04
     if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
 
     steps:
+      - name: Restore consolidated artifacts on job rerun
+        id: restore_retained_artifacts
+        if: ${{ github.run_attempt > 1 }}
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const path = require('node:path');
+            const os = require('node:os');
+            async function restoreRetainedArtifacts({
+              github,
+              context,
+              core,
+              exec,
+              owner = context.repo.owner,
+              repo = context.repo.repo,
+              desiredName = '',
+              pattern = '',
+              targetPath,
+              mergeMultiple = false,
+              explicitName = false,
+              tempRoot = process.env.RUNNER_TEMP || os.tmpdir(),
+              fs = require('node:fs'),
+            }) {
+              if (context.runAttempt <= 1) {
+                core.setOutput('restored', 'false');
+                return false;
+              }
+            
+              const runArtifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+                owner,
+                repo,
+                run_id: context.runId,
+                per_page: 100,
+              });
+              const matches = (name) => {
+                if (desiredName) return name === desiredName;
+                if (pattern) {
+                  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+                  const expression = new RegExp(`^${escaped.replace(/\*/g, '.*').replace(/\?/g, '.')}$`);
+                  return expression.test(name);
+                }
+                return true;
+              };
+              const currentArtifacts = runArtifacts.filter((artifact) => !artifact.expired && matches(artifact.name));
+            
+              const repositoryName = `${owner}/${repo}`;
+              const repositoryArtifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, {
+                owner,
+                repo,
+                per_page: 100,
+              });
+              const candidates = [];
+              for (const artifact of repositoryArtifacts) {
+                const match = /^latest-run-(\d+)-(\d+)-(\d+)$/.exec(artifact.name);
+                if (!match || Number(match[1]) !== Number(context.runId) || artifact.expired || !artifact.workflow_run?.id) continue;
+                const retentionRun = (await github.rest.actions.getWorkflowRun({
+                  owner,
+                  repo,
+                  run_id: artifact.workflow_run.id,
+                })).data;
+                if (retentionRun.status !== 'completed' ||
+                    retentionRun.path !== '.github/workflows/artifact-retention.yml' ||
+                    retentionRun.repository?.full_name !== repositoryName) continue;
+                candidates.push({ artifact, sourceCreatedAt: Number(match[2]), sourceAttempt: Number(match[3]) });
+              }
+              candidates.sort((left, right) =>
+                right.sourceCreatedAt - left.sourceCreatedAt ||
+                right.sourceAttempt - left.sourceAttempt ||
+                Date.parse(right.artifact.created_at) - Date.parse(left.artifact.created_at)
+              );
+              if (candidates.length === 0) {
+                if (currentArtifacts.length > 0) {
+                  core.info('No retained bundle is available; current-run artifacts remain available for the normal download step.');
+                  core.setOutput('restored', 'false');
+                  return false;
+                }
+                throw new Error(`No retained artifact bundle from .github/workflows/artifact-retention.yml matches source run ${context.runId}.`);
+              }
+            
+              const bundle = candidates[0].artifact;
+              const outerZip = path.join(tempRoot, `retained-${context.runId}.zip`);
+              const outerDir = path.join(tempRoot, `retained-${context.runId}`);
+              fs.mkdirSync(outerDir, { recursive: true });
+              const archive = await github.rest.actions.downloadArtifact({
+                owner,
+                repo,
+                artifact_id: bundle.id,
+                archive_format: 'zip',
+              });
+              fs.writeFileSync(outerZip, Buffer.from(archive.data));
+              await exec.exec('unzip', ['-q', '-o', outerZip, '-d', outerDir]);
+            
+              const manifestPath = path.join(outerDir, 'manifest.json');
+              if (!fs.existsSync(manifestPath)) throw new Error(`Retained bundle ${bundle.name} has no manifest.json.`);
+              const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+              if (Number(manifest.sourceRunId) !== Number(context.runId) || !Array.isArray(manifest.artifacts)) {
+                throw new Error(`Retained bundle ${bundle.name} does not describe source run ${context.runId}.`);
+              }
+              const selected = manifest.artifacts.filter((item) => item && typeof item.name === 'string' && matches(item.name));
+              if (selected.length === 0 && currentArtifacts.length === 0) {
+                throw new Error(`Retained bundle ${bundle.name} contains no artifact matching ${desiredName || pattern || '*'} for run ${context.runId}.`);
+              }
+            
+              const destination = path.resolve(targetPath);
+              fs.mkdirSync(destination, { recursive: true });
+              const extractArtifact = async (artifactName, archivePath) => {
+                const artifactPath = mergeMultiple || explicitName ? destination : path.join(destination, artifactName);
+                fs.mkdirSync(artifactPath, { recursive: true });
+                await exec.exec('unzip', ['-q', '-o', archivePath, '-d', artifactPath]);
+                core.info(`Restored artifact ${artifactName} to ${artifactPath}`);
+              };
+            
+              // Restore the complete retained set first; newer artifacts from this retry
+              // are extracted afterwards so they replace stale files with the same name.
+              for (const item of selected) {
+                if (typeof item.filename !== 'string' || path.basename(item.filename) !== item.filename || !item.filename.endsWith('.zip')) {
+                  throw new Error(`Retained bundle ${bundle.name} contains an invalid archive filename.`);
+                }
+                const innerZip = path.join(outerDir, item.filename);
+                if (!fs.existsSync(innerZip)) throw new Error(`Retained bundle ${bundle.name} is missing ${item.filename}.`);
+                await extractArtifact(item.name, innerZip);
+              }
+              for (const artifact of currentArtifacts) {
+                const archivePath = path.join(outerDir, `current-${artifact.id}.zip`);
+                const currentArchive = await github.rest.actions.downloadArtifact({
+                  owner,
+                  repo,
+                  artifact_id: artifact.id,
+                  archive_format: 'zip',
+                });
+                fs.writeFileSync(archivePath, Buffer.from(currentArchive.data));
+                await extractArtifact(artifact.name, archivePath);
+              }
+            
+              core.setOutput('restored', 'true');
+              return true;
+            }
+            await restoreRetainedArtifacts({ github, context, core, exec, ...{"targetPath":"release","mergeMultiple":false} });
       - name: Download APK artifacts
         uses: actions/download-artifact@v8
+        if: ${{ steps.restore_retained_artifacts.outputs.restored != 'true' }}
         with:
           path: release
 
