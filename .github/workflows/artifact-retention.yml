@@ -1,9 +1,6 @@
 name: Keep latest Actions artifact
 
 on:
-  workflow_run:
-    workflows: ['*', '!Keep latest Actions artifact']
-    types: [completed]
   workflow_dispatch:
 
 permissions:
